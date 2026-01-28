@@ -2890,6 +2890,41 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 {scoreboard.slice(0, 4).map((s, idx) => renderTeamPanel(s.user_id, idx === 0 ? "text-emerald-300" : "text-slate-200"))}
               </div>
 
+              {/* Debug: Manual save button */}
+              {mySeat === 1 && Object.keys(resultsByUser).length > 0 && (
+                <div className="mb-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+                  <button
+                    onClick={async () => {
+                      flashNotice("Manually saving stats...");
+                      try {
+                        const resultsArray = Object.entries(resultsByUser).map(([uid, v]) => ({
+                          user_id: uid,
+                          display_name: players.find((p) => p.user_id === uid)?.display_name || "Player",
+                          seat: players.find((p) => p.user_id === uid)?.seat || 1,
+                          final_score: Number(v?.total || 0),
+                        }));
+                        console.log("Manual save:", { gameId, resultsArray, isAnonymous });
+                        const result = await rpc("ff_save_game_results", {
+                          p_game_id: gameId,
+                          p_results: resultsArray,
+                          p_settings: gameSettings,
+                        });
+                        console.log("Manual save result:", result);
+                        flashNotice("Stats saved! Refresh profile to see.");
+                        fetchProfile(userId);
+                      } catch (err) {
+                        console.error("Manual save error:", err);
+                        flashNotice(`Save failed: ${err?.message || err}`);
+                      }
+                    }}
+                    className="w-full bg-yellow-600 hover:bg-yellow-500 py-2 rounded font-bold"
+                  >
+                    Save Stats (Debug)
+                  </button>
+                  <p className="text-xs text-yellow-300 mt-2">Click to manually save game stats to your profile</p>
+                </div>
+              )}
+
               <div className="flex justify-center gap-4">
   <button
     onClick={async () => {
