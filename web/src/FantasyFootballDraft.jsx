@@ -2892,7 +2892,21 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
 
               {/* Debug: Manual save button */}
               {mySeat === 1 && (
-                <div className="mb-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+                <div className="mb-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      rpc("ff_test_update_profile", { p_user_id: userId })
+                        .then((result) => {
+                          alert("Test update result: " + JSON.stringify(result));
+                          fetchProfile(userId);
+                        })
+                        .catch((err) => alert("Test error: " + (err?.message || err)));
+                    }}
+                    className="w-full bg-green-600 hover:bg-green-500 py-3 rounded font-bold text-white"
+                  >
+                    TEST DIRECT PROFILE UPDATE
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -2920,9 +2934,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                     }}
                     className="w-full bg-yellow-600 hover:bg-yellow-500 py-3 rounded font-bold text-black"
                   >
-                    SAVE STATS (TAP HERE)
+                    SAVE GAME STATS
                   </button>
-                  <p className="text-xs text-yellow-300 mt-2">Your ID: {userId?.slice(0,8)}... | Anonymous: {isAnonymous ? "YES" : "NO"}</p>
+                  <p className="text-xs text-yellow-300">Your ID: {userId?.slice(0,8)}... | Anonymous: {isAnonymous ? "YES" : "NO"}</p>
                 </div>
               )}
 
