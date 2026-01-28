@@ -1407,8 +1407,6 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
 const fetchStatsAndCalculateAll = async (teams) => {
-  console.log("fetchStatsAndCalculateAll called", { mySeat, gameId, userId });
-  flashNotice("Calculating results...");
   setLoadingStats(true);
   try {
     if (!gameWeek?.season || !gameWeek?.week) return;
@@ -1520,7 +1518,6 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     // Save game results to database (for leaderboards/history)
     // Only seat 1 saves to avoid duplicate inserts, but all players get stats updated
     if (gameId && mySeat === 1) {
-      flashNotice("Saving stats...");
       try {
         const resultsArray = Object.entries(res).map(([uid, v]) => {
           const playerInfo = players.find((p) => p.user_id === uid);
@@ -1532,16 +1529,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
           };
         });
 
-        console.log("Saving game results:", { gameId, resultsArray, userId, isAnonymous });
-
         const highScoreResult = await rpc("ff_save_game_results", {
           p_game_id: gameId,
           p_results: resultsArray,
           p_settings: gameSettings,
         });
-
-        console.log("Save result:", highScoreResult);
-        flashNotice("Stats saved!");
 
         // Check if someone set a new high score
         const hsData = Array.isArray(highScoreResult) ? highScoreResult[0] : highScoreResult;
@@ -1556,11 +1548,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
         }
       } catch (saveErr) {
         console.warn("Failed to save game results:", saveErr);
-        flashNotice(`Save failed: ${saveErr?.message || saveErr}`);
       }
-    } else {
-      flashNotice(`Not seat 1 (seat: ${mySeat}) - stats not saved by you`);
-      console.log("Not saving results - mySeat:", mySeat, "gameId:", gameId);
     }
 
     // Refresh profile to show updated stats
@@ -2890,55 +2878,6 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 {scoreboard.slice(0, 4).map((s, idx) => renderTeamPanel(s.user_id, idx === 0 ? "text-emerald-300" : "text-slate-200"))}
               </div>
 
-              {/* Debug: Manual save button */}
-              {mySeat === 1 && (
-                <div className="mb-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      rpc("ff_test_update_profile", { p_user_id: userId })
-                        .then((result) => {
-                          alert("Test update result: " + JSON.stringify(result));
-                          fetchProfile(userId);
-                        })
-                        .catch((err) => alert("Test error: " + (err?.message || err)));
-                    }}
-                    className="w-full bg-green-600 hover:bg-green-500 py-3 rounded font-bold text-white"
-                  >
-                    TEST DIRECT PROFILE UPDATE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const resultUserIds = Object.keys(resultsByUser);
-                      alert("Your userId: " + userId + "\nResult userIds: " + resultUserIds.join(", ") + "\nMatch: " + resultUserIds.includes(userId));
-                      flashNotice("Saving...");
-                      const resultsArray = Object.entries(resultsByUser).map(([uid, v]) => ({
-                        user_id: uid,
-                        display_name: players.find((p) => p.user_id === uid)?.display_name || "Player",
-                        seat: players.find((p) => p.user_id === uid)?.seat || 1,
-                        final_score: Number(v?.total || 0),
-                      }));
-                      rpc("ff_save_game_results", {
-                        p_game_id: gameId,
-                        p_results: resultsArray,
-                        p_settings: gameSettings,
-                      }).then((result) => {
-                        alert("Save success: " + JSON.stringify(result));
-                        flashNotice("Saved!");
-                        fetchProfile(userId);
-                      }).catch((err) => {
-                        alert("Save error: " + (err?.message || err));
-                        flashNotice("Error: " + (err?.message || err));
-                      });
-                    }}
-                    className="w-full bg-yellow-600 hover:bg-yellow-500 py-3 rounded font-bold text-black"
-                  >
-                    SAVE GAME STATS
-                  </button>
-                  <p className="text-xs text-yellow-300">Your ID: {userId?.slice(0,8)}... | Anonymous: {isAnonymous ? "YES" : "NO"}</p>
-                </div>
-              )}
 
               <div className="flex justify-center gap-4">
   <button
