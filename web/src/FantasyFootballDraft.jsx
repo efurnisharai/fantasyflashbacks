@@ -576,19 +576,55 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
   const inviteUrl = roomCode ? `${window.location.origin}/?room=${encodeURIComponent(roomCode)}` : "";
 
+  const copyToClipboard = async (text) => {
+    // Try modern clipboard API first
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (e) {
+        // Fall through to fallback
+      }
+    }
+    // Fallback for older browsers / non-HTTPS
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
   const copyInviteLink = async () => {
     if (!roomCode) return;
     const text = `Join my Fantasy Flashback room: ${roomCode}\n${inviteUrl}`;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } else {
+      flashNotice(`Link: ${inviteUrl}`);
+    }
   };
 
   const copyRoomCodeOnly = async () => {
     if (!roomCode) return;
-    await navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    const success = await copyToClipboard(roomCode);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } else {
+      flashNotice(`Code: ${roomCode}`);
+    }
   };
 
   const createRoom = async () => {
@@ -1815,6 +1851,17 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 className="mt-4 w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
               >
                 {busy ? "Joining…" : "Join Room"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setInviteRoom(null);
+                  setRoomCode("");
+                  window.history.replaceState({}, "", window.location.pathname);
+                }}
+                className="mt-2 w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-sm font-medium transition"
+              >
+                Back to Menu
               </button>
 
               <div className="mt-3 text-xs text-slate-400">Auto-join will start a couple seconds after you stop typing.</div>
