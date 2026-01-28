@@ -306,7 +306,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
   // Fetch user profile
-  const fetchProfile = async (uid) => {
+  const fetchProfile = async (uid, fallbackName = null) => {
     try {
       const { data, error } = await supabase
         .from("user_profiles")
@@ -314,9 +314,20 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         .eq("id", uid)
         .single();
       if (error && error.code !== "PGRST116") throw error; // PGRST116 = not found
-      if (data) setUserProfile(data);
+      if (data) {
+        setUserProfile(data);
+        // Use profile's display_name if available, otherwise fall back to Google/Apple name
+        if (data.display_name) {
+          setPlayerName(data.display_name);
+        } else if (fallbackName) {
+          setPlayerName(fallbackName);
+        }
+      } else if (fallbackName) {
+        setPlayerName(fallbackName);
+      }
     } catch (e) {
       console.warn("Failed to fetch profile:", e);
+      if (fallbackName) setPlayerName(fallbackName);
     }
   };
 
@@ -328,12 +339,9 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         setUserId(session.user.id);
         const provider = session.user.app_metadata?.provider || "anonymous";
         setIsAnonymous(provider === "anonymous");
-        fetchProfile(session.user.id);
-
-        // Pre-fill display name if we have it
-        if (session.user.user_metadata?.full_name && !playerName) {
-          setPlayerName(session.user.user_metadata.full_name);
-        }
+        // Pass Google/Apple name as fallback - profile's display_name takes priority
+        const fallbackName = session.user.user_metadata?.full_name || null;
+        fetchProfile(session.user.id, fallbackName);
       }
     };
     checkAuth();
@@ -344,7 +352,8 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         setUserId(session.user.id);
         const provider = session.user.app_metadata?.provider || "anonymous";
         setIsAnonymous(provider === "anonymous");
-        fetchProfile(session.user.id);
+        const fallbackName = session.user.user_metadata?.full_name || null;
+        fetchProfile(session.user.id, fallbackName);
       }
     });
 
@@ -390,16 +399,20 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     setShowSignIn(false);
   };
 
-  // Update display name
+  // Update display name (one-time change for signed-in users)
   const updateDisplayName = async () => {
     if (!userId || !editNameValue.trim()) return;
     try {
       const { error } = await supabase
         .from("user_profiles")
-        .update({ display_name: editNameValue.trim(), updated_at: new Date().toISOString() })
+        .update({
+          display_name: editNameValue.trim(),
+          name_changed: true,
+          updated_at: new Date().toISOString()
+        })
         .eq("id", userId);
       if (error) throw error;
-      setUserProfile((prev) => prev ? { ...prev, display_name: editNameValue.trim() } : prev);
+      setUserProfile((prev) => prev ? { ...prev, display_name: editNameValue.trim(), name_changed: true } : prev);
       setPlayerName(editNameValue.trim());
       setEditingName(false);
       flashNotice("Name updated!");
@@ -1918,15 +1931,17 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{userProfile.display_name || "Player"}</span>
-                            <button
-                              onClick={() => {
-                                setEditNameValue(userProfile.display_name || "");
-                                setEditingName(true);
-                              }}
-                              className="text-slate-400 hover:text-white text-xs"
-                            >
-                              (edit)
-                            </button>
+                            {!userProfile.name_changed && (
+                              <button
+                                onClick={() => {
+                                  setEditNameValue(userProfile.display_name || "");
+                                  setEditingName(true);
+                                }}
+                                className="text-slate-400 hover:text-white text-xs"
+                              >
+                                (edit)
+                              </button>
+                            )}
                           </div>
                         )}
                         <div className="text-xs text-slate-400">
