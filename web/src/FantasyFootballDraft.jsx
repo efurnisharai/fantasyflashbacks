@@ -2896,7 +2896,8 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   <button
                     type="button"
                     onClick={() => {
-                      alert("Button clicked! gameId: " + gameId + ", results: " + Object.keys(resultsByUser).length);
+                      const resultUserIds = Object.keys(resultsByUser);
+                      alert("Your userId: " + userId + "\nResult userIds: " + resultUserIds.join(", ") + "\nMatch: " + resultUserIds.includes(userId));
                       flashNotice("Saving...");
                       const resultsArray = Object.entries(resultsByUser).map(([uid, v]) => ({
                         user_id: uid,
@@ -2921,7 +2922,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   >
                     SAVE STATS (TAP HERE)
                   </button>
-                  <p className="text-xs text-yellow-300 mt-2">Results count: {Object.keys(resultsByUser).length}, GameID: {gameId ? "yes" : "no"}</p>
+                  <p className="text-xs text-yellow-300 mt-2">Your ID: {userId?.slice(0,8)}... | Anonymous: {isAnonymous ? "YES" : "NO"}</p>
                 </div>
               )}
 
