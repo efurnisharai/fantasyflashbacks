@@ -949,12 +949,28 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           setGameWeek({ season: g.season, week: clampWeek(g.week) });
           setScreen("draft");
         }
-        if (g.status === "scoring" || g.status === "done") setScreen("results");
+        if (g.status === "scoring" || g.status === "done") {
+          if (!resultsComputedRef.current) {
+            setGameWeek({ season: g.season, week: clampWeek(g.week) });
+          }
+          setScreen("results");
+        }
       } catch (_) {}
     }, 800);
 
     return () => clearInterval(poll);
   }, [gameId, userId, screen]);
+
+  // Trigger stats calculation when entering results screen
+  useEffect(() => {
+    if (screen !== "results") return;
+    if (resultsComputedRef.current) return;
+    if (!gameWeek?.season || !gameWeek?.week) return;
+    if (!teamsByUser || Object.keys(teamsByUser).length === 0) return;
+
+    resultsComputedRef.current = true;
+    fetchStatsAndCalculateAll(teamsByUser);
+  }, [screen, gameWeek, teamsByUser]);
 
   useEffect(() => {
     if (screen !== "lobby") return;
