@@ -1135,6 +1135,12 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       // Double-check it's still my turn on the server
       if (g.turn_user_id !== userId) return;
 
+      // CRITICAL: Check that the server's deadline has actually passed
+      const serverDeadline = toMs(g.turn_deadline_at);
+      if (serverDeadline && serverDeadline > Date.now()) {
+        return; // Server says time isn't up yet
+      }
+
       if (lastAutoPickTryRef.current.gameId === gameId && lastAutoPickTryRef.current.pickNumber === g.pick_number) {
         return; // Already tried this pick
       }
@@ -1173,15 +1179,17 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         if (playerToPick) break;
       }
 
-      // If no pinned player found, pick best available for first open slot
+      // If no pinned player found, pick a RANDOM available player for first open slot
       if (!playerToPick) {
         for (const { index, slot } of openPositions) {
           const positions = slot === "FLEX" ? ["RB", "WR", "TE"] : [slot];
-          const available = weeklyRoster
-            .filter((p) => positions.includes(p.position) && !draftedPlayerIds.has(p.id))
-            .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+          const available = weeklyRoster.filter(
+            (p) => positions.includes(p.position) && !draftedPlayerIds.has(p.id)
+          );
           if (available.length > 0) {
-            playerToPick = available[0];
+            // Pick randomly from available players
+            const randomIndex = Math.floor(Math.random() * available.length);
+            playerToPick = available[randomIndex];
             slotIndex = index;
             slotPosition = slot;
             break;
