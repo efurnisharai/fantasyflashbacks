@@ -770,7 +770,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           p_host_user_id: userId,
           p_season: pick.season,
           p_week: clampWeek(pick.week),
-          p_settings: { ...gameSettings, maxPlayers: effectiveMaxPlayers, snakeDraft: snakeDraftToSend },
+          p_settings: { ...gameSettings, maxPlayers: effectiveMaxPlayers, snakeDraft: snakeDraftToSend, totalRounds: rosterSize },
         });
         started = Array.isArray(rpcData) ? rpcData[0] : rpcData;
       } catch (_) {
