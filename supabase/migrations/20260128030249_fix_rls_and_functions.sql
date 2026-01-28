@@ -1221,3 +1221,4 @@ begin
   execute 'alter table public.games alter column snake_draft set not null';
 exception when others then null;
 end $$;
+
