@@ -12,6 +12,7 @@ import {
   Link as LinkIcon,
   Star,
   Share2,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { scorePlayerRow, scoreDstRow } from "./lib/scoring";
@@ -50,6 +51,8 @@ const NFL_TEAMS = {
   TEN: { primary: "#0C2340", secondary: "#4B92DB" },
   WAS: { primary: "#5A1414", secondary: "#FFB612" },
 };
+
+const NFL_TEAM_ABBRS = Object.keys(NFL_TEAMS).sort();
 
 const POSITION_COLORS = {
   QB: { bg: "bg-red-900/50", border: "border-red-500", text: "text-red-400" },
@@ -188,6 +191,9 @@ export default function FantasyFootballDraft() {
   const [teamsByUser, setTeamsByUser] = useState({});
 
   const [posFilter, setPosFilter] = useState("ALL");
+  const [teamFilter, setTeamFilter] = useState("ALL");
+  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
+  const [teamSearchQuery, setTeamSearchQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLimit, setSearchLimit] = useState(25);
   const [searchingMore, setSearchingMore] = useState(false);
@@ -220,6 +226,7 @@ export default function FantasyFootballDraft() {
   const resultsComputedRef = useRef(false);
   const autoPickInFlightRef = useRef(false);
   const lastAutoPickTryRef = useRef({ gameId: null, pickNumber: null });
+  const teamDropdownRef = useRef(null);
 
   // Keep the throttle, but NEVER use alert/popups for it.
   const lastActionAtRef = useRef({ create: 0, join: 0, match: 0 });
@@ -246,6 +253,19 @@ export default function FantasyFootballDraft() {
       setScreen("setup");
     }
   }, []);
+
+  // Close team dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (teamDropdownRef.current && !teamDropdownRef.current.contains(e.target)) {
+        setTeamDropdownOpen(false);
+      }
+    };
+    if (teamDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [teamDropdownOpen]);
 
   const effectiveMaxPlayers = useMemo(() => {
     const n = Number(gameSettings.maxPlayers || 2);
@@ -801,6 +821,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setTeamsByUser({});
 
       setPosFilter("ALL");
+      setTeamFilter("ALL");
       setSearchQuery("");
       setSearchLimit(25);
 
@@ -1015,7 +1036,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
   useEffect(() => {
     setSearchLimit(25);
-  }, [posFilter]);
+  }, [posFilter, teamFilter]);
 
   useEffect(() => {
     if (!weeklyRoster.length) {
@@ -1034,6 +1055,10 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     const filtered = weeklyRoster.filter((p) => {
       if (draftedPlayerIds.has(p.id)) return false;
       if (!allowedPositions.includes(p.position)) return false;
+      if (teamFilter !== "ALL") {
+        const normalizedPlayerTeam = normalizeTeam(p.team);
+        if (normalizedPlayerTeam !== teamFilter) return false;
+      }
       if (!q) return true;
       return (p.name || "").toLowerCase().includes(q) || (p.team || "").toLowerCase().includes(q);
     });
@@ -1054,7 +1079,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
     setSearchTotal(combined.length);
     setSearchResults(combined.slice(0, Math.min(500, Math.max(searchLimit, pinnedRows.length))));
-  }, [weeklyRoster, draftedPlayerIds, posFilter, searchQuery, searchLimit, pinnedByPos]);
+  }, [weeklyRoster, draftedPlayerIds, posFilter, teamFilter, searchQuery, searchLimit, pinnedByPos]);
 
   const showMoreResults = () => {
     setSearchingMore(true);
@@ -1546,6 +1571,99 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
           style={{ background: `linear-gradient(135deg, ${info.primary} 50%, ${info.secondary} 50%)` }}
         />
         <span className="text-xs font-medium">{t}</span>
+      </div>
+    );
+  };
+
+  const TeamFilterDropdown = () => {
+    const filteredTeams = NFL_TEAM_ABBRS.filter((abbr) =>
+      abbr.toLowerCase().includes(teamSearchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="relative" ref={teamDropdownRef}>
+        <button
+          onClick={() => {
+            setTeamDropdownOpen((v) => !v);
+            setTeamSearchQuery("");
+          }}
+          className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-bold transition ${
+            teamFilter !== "ALL"
+              ? "bg-slate-600 text-white"
+              : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+          }`}
+        >
+          {teamFilter === "ALL" ? (
+            <span>All Teams</span>
+          ) : (
+            <>
+              <div
+                className="w-3 h-3 rounded-sm"
+                style={{
+                  background: `linear-gradient(135deg, ${NFL_TEAMS[teamFilter]?.primary || "#666"} 50%, ${NFL_TEAMS[teamFilter]?.secondary || "#333"} 50%)`,
+                }}
+              />
+              <span>{teamFilter}</span>
+            </>
+          )}
+          <ChevronDown size={14} className={`transition-transform ${teamDropdownOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {teamDropdownOpen && (
+          <div className="absolute z-50 mt-1 w-40 bg-slate-800 border border-slate-600 rounded-lg shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-slate-600">
+              <input
+                type="text"
+                placeholder="Search teams..."
+                value={teamSearchQuery}
+                onChange={(e) => setTeamSearchQuery(e.target.value)}
+                className="w-full bg-slate-700 rounded px-2 py-1.5 text-xs text-white placeholder-slate-400"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {teamSearchQuery === "" && (
+                <button
+                  onClick={() => {
+                    setTeamFilter("ALL");
+                    setTeamDropdownOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-slate-700 ${
+                    teamFilter === "ALL" ? "bg-slate-600" : ""
+                  }`}
+                >
+                  <div className="w-3 h-3 rounded-sm bg-slate-500" />
+                  <span>All Teams</span>
+                </button>
+              )}
+              {filteredTeams.length > 0 ? (
+                filteredTeams.map((abbr) => {
+                  const info = NFL_TEAMS[abbr];
+                  return (
+                    <button
+                      key={abbr}
+                      onClick={() => {
+                        setTeamFilter(abbr);
+                        setTeamDropdownOpen(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-slate-700 ${
+                        teamFilter === abbr ? "bg-slate-600" : ""
+                      }`}
+                    >
+                      <div
+                        className="w-3 h-3 rounded-sm"
+                        style={{ background: `linear-gradient(135deg, ${info.primary} 50%, ${info.secondary} 50%)` }}
+                      />
+                      <span>{abbr}</span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-2 text-xs text-slate-400">No teams match</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -2345,7 +2463,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           {tab("All", "ALL")}
           {tab("QB", "QB")}
           {tab("RB", "RB")}
@@ -2354,6 +2472,8 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
           {tab("FLEX", "FLEX")}
           {tab("K", "K")}
           {tab("DST", "DST")}
+          <div className="border-l border-slate-600 h-6 mx-1" />
+          <TeamFilterDropdown />
         </div>
 
         <div className="relative mb-3">
@@ -2701,6 +2821,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
       setGlobalBestLineup(null);
       setGameWeek(null);
       setPosFilter("ALL");
+      setTeamFilter("ALL");
       setSearchQuery("");
       setSearchResults([]);
       setTurnDeadlineAtMs(null);
@@ -2748,6 +2869,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
       setGlobalBestLineup(null);
       setGameWeek(null);
       setPosFilter("ALL");
+      setTeamFilter("ALL");
       setSearchQuery("");
       setSearchResults([]);
       setTurnDeadlineAtMs(null);
