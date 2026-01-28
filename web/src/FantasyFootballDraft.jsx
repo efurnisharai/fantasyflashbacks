@@ -2891,37 +2891,37 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               </div>
 
               {/* Debug: Manual save button */}
-              {mySeat === 1 && Object.keys(resultsByUser).length > 0 && (
+              {mySeat === 1 && (
                 <div className="mb-4 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
                   <button
-                    onClick={async () => {
-                      flashNotice("Manually saving stats...");
-                      try {
-                        const resultsArray = Object.entries(resultsByUser).map(([uid, v]) => ({
-                          user_id: uid,
-                          display_name: players.find((p) => p.user_id === uid)?.display_name || "Player",
-                          seat: players.find((p) => p.user_id === uid)?.seat || 1,
-                          final_score: Number(v?.total || 0),
-                        }));
-                        console.log("Manual save:", { gameId, resultsArray, isAnonymous });
-                        const result = await rpc("ff_save_game_results", {
-                          p_game_id: gameId,
-                          p_results: resultsArray,
-                          p_settings: gameSettings,
-                        });
-                        console.log("Manual save result:", result);
-                        flashNotice("Stats saved! Refresh profile to see.");
+                    type="button"
+                    onClick={() => {
+                      alert("Button clicked! gameId: " + gameId + ", results: " + Object.keys(resultsByUser).length);
+                      flashNotice("Saving...");
+                      const resultsArray = Object.entries(resultsByUser).map(([uid, v]) => ({
+                        user_id: uid,
+                        display_name: players.find((p) => p.user_id === uid)?.display_name || "Player",
+                        seat: players.find((p) => p.user_id === uid)?.seat || 1,
+                        final_score: Number(v?.total || 0),
+                      }));
+                      rpc("ff_save_game_results", {
+                        p_game_id: gameId,
+                        p_results: resultsArray,
+                        p_settings: gameSettings,
+                      }).then((result) => {
+                        alert("Save success: " + JSON.stringify(result));
+                        flashNotice("Saved!");
                         fetchProfile(userId);
-                      } catch (err) {
-                        console.error("Manual save error:", err);
-                        flashNotice(`Save failed: ${err?.message || err}`);
-                      }
+                      }).catch((err) => {
+                        alert("Save error: " + (err?.message || err));
+                        flashNotice("Error: " + (err?.message || err));
+                      });
                     }}
-                    className="w-full bg-yellow-600 hover:bg-yellow-500 py-2 rounded font-bold"
+                    className="w-full bg-yellow-600 hover:bg-yellow-500 py-3 rounded font-bold text-black"
                   >
-                    Save Stats (Debug)
+                    SAVE STATS (TAP HERE)
                   </button>
-                  <p className="text-xs text-yellow-300 mt-2">Click to manually save game stats to your profile</p>
+                  <p className="text-xs text-yellow-300 mt-2">Results count: {Object.keys(resultsByUser).length}, GameID: {gameId ? "yes" : "no"}</p>
                 </div>
               )}
 
