@@ -1500,7 +1500,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     setResultsByUser(res);
 
     // Save game results to database (for leaderboards/history)
+    // Only seat 1 saves to avoid duplicate inserts, but all players get stats updated
     if (gameId && mySeat === 1) {
+      flashNotice("Saving stats...");
       try {
         const resultsArray = Object.entries(res).map(([uid, v]) => {
           const playerInfo = players.find((p) => p.user_id === uid);
@@ -1512,11 +1514,16 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
           };
         });
 
+        console.log("Saving game results:", { gameId, resultsArray, userId, isAnonymous });
+
         const highScoreResult = await rpc("ff_save_game_results", {
           p_game_id: gameId,
           p_results: resultsArray,
           p_settings: gameSettings,
         });
+
+        console.log("Save result:", highScoreResult);
+        flashNotice("Stats saved!");
 
         // Check if someone set a new high score
         const hsData = Array.isArray(highScoreResult) ? highScoreResult[0] : highScoreResult;
@@ -1531,8 +1538,16 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
         }
       } catch (saveErr) {
         console.warn("Failed to save game results:", saveErr);
-        // Non-fatal - game still works, just won't track stats
+        flashNotice(`Save failed: ${saveErr?.message || saveErr}`);
       }
+    } else {
+      flashNotice(`Not seat 1 (seat: ${mySeat}) - stats not saved by you`);
+      console.log("Not saving results - mySeat:", mySeat, "gameId:", gameId);
+    }
+
+    // Refresh profile to show updated stats
+    if (userId) {
+      fetchProfile(userId);
     }
   } catch (e) {
     flashNotice(`Scoring failed: ${safeMsg(e)}`);
