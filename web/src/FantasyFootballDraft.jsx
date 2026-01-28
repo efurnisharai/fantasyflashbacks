@@ -1391,6 +1391,8 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
 const fetchStatsAndCalculateAll = async (teams) => {
+  console.log("fetchStatsAndCalculateAll called", { mySeat, gameId, userId });
+  flashNotice("Calculating results...");
   setLoadingStats(true);
   try {
     if (!gameWeek?.season || !gameWeek?.week) return;
