@@ -878,7 +878,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           setGameWeek({ season: g.season, week: clampWeek(g.week) });
           setScreen("draft");
         }
-        if (g.status === "done") setScreen("results");
+        if (g.status === "scoring" || g.status === "done") setScreen("results");
       } catch (_) {}
     }, 800);
 
