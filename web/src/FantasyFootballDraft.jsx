@@ -1132,19 +1132,98 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       if (!g || g.status !== "draft") return;
 
       if (lastAutoPickTryRef.current.gameId === gameId && lastAutoPickTryRef.current.pickNumber === g.pick_number) {
-        // no-op
-      } else {
-        lastAutoPickTryRef.current = { gameId, pickNumber: g.pick_number };
+        return; // Already tried this pick
       }
+      lastAutoPickTryRef.current = { gameId, pickNumber: g.pick_number };
 
-      const rpcData = await rpc("ff_auto_pick_if_needed", { p_game_id: gameId });
-      const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-      if (row) {
-        setTurnUserId(row.turn_user_id);
-        setPickNumber(Number(row.pick_number || pickNumber));
-        if (userId) setIsMyTurn(row.turn_user_id === userId);
-        const ms = toMs(row.turn_deadline_at);
-        if (ms) setTurnDeadlineAtMs(ms);
+      // If it's MY turn, handle auto-pick client-side with pinned player logic
+      if (g.turn_user_id === userId) {
+        // Find open positions
+        const openPositions = [];
+        for (let i = 0; i < rosterSlots.length; i++) {
+          if (!myTeam[i]) {
+            openPositions.push({ index: i, slot: rosterSlots[i] });
+          }
+        }
+
+        if (openPositions.length === 0) return;
+
+        // Check for pinned players in open positions
+        let playerToPick = null;
+        let slotIndex = -1;
+        let slotPosition = null;
+
+        for (const { index, slot } of openPositions) {
+          const positions = slot === "FLEX" ? ["RB", "WR", "TE"] : [slot];
+          for (const pos of positions) {
+            const pinned = pinsFor(pos);
+            if (pinned.length > 0) {
+              // Find the player data for the first pinned player
+              const pinnedPlayer = weeklyRoster.find((p) => p.id === pinned[0] && !draftedPlayerIds.has(p.id));
+              if (pinnedPlayer) {
+                playerToPick = pinnedPlayer;
+                slotIndex = index;
+                slotPosition = slot;
+                break;
+              }
+            }
+          }
+          if (playerToPick) break;
+        }
+
+        // If no pinned player found, pick best available for first open slot
+        if (!playerToPick) {
+          for (const { index, slot } of openPositions) {
+            const positions = slot === "FLEX" ? ["RB", "WR", "TE"] : [slot];
+            const available = weeklyRoster
+              .filter((p) => positions.includes(p.position) && !draftedPlayerIds.has(p.id))
+              .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+            if (available.length > 0) {
+              playerToPick = available[0];
+              slotIndex = index;
+              slotPosition = slot;
+              break;
+            }
+          }
+        }
+
+        if (playerToPick && slotIndex !== -1) {
+          flashNotice(`Auto-picking ${playerToPick.name} (timer expired)`);
+          try {
+            const rpcData = await rpc("ff_make_pick", {
+              p_game_id: gameId,
+              p_user_id: userId,
+              p_player_id: playerToPick.id,
+              p_slot_index: slotIndex,
+              p_slot_position: slotPosition,
+            });
+            const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+            if (row) {
+              setTurnUserId(row.new_turn_user_id);
+              setPickNumber(Number(row.new_pick_number || pickNumber));
+              if (userId) setIsMyTurn(row.new_turn_user_id === userId);
+              const ms = toMs(row.new_turn_deadline_at);
+              if (ms) setTurnDeadlineAtMs(ms);
+            }
+          } catch (e) {
+            flashNotice(`Auto-pick failed: ${e?.message || "Unknown error"}`);
+          }
+        }
+      } else {
+        // Not my turn - call server-side auto-pick for the current drafter
+        const rpcData = await rpc("ff_auto_pick_if_needed", { p_game_id: gameId });
+        const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        if (row?.did_auto_pick) {
+          // Refresh game state
+          const updated = await fetchGameState(gameId);
+          if (updated) {
+            setTurnUserId(updated.turn_user_id);
+            setPickNumber(Number(updated.pick_number || pickNumber));
+            if (userId) setIsMyTurn(updated.turn_user_id === userId);
+            const ms = toMs(updated.turn_deadline_at);
+            if (ms) setTurnDeadlineAtMs(ms);
+          }
+        }
       }
     } catch (_) {
       // ignore
