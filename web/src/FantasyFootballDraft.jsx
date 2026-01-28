@@ -856,6 +856,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
   useEffect(() => {
     if (!gameId) return;
+    if (screen === "results") return; // Stop polling once on results
 
     const poll = setInterval(async () => {
       try {
@@ -883,7 +884,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     }, 800);
 
     return () => clearInterval(poll);
-  }, [gameId, userId]);
+  }, [gameId, userId, screen]);
 
   useEffect(() => {
     if (screen !== "lobby") return;
