@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { scorePlayerRow, scoreDstRow } from "./lib/scoring";
+import { hapticLight, hapticMedium, hapticSuccess, hapticError, shareInvite, isNative } from "./utils/native";
 
 const NFL_TEAMS = {
   ARI: { primary: "#97233F", secondary: "#000000" },
@@ -606,9 +607,19 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
   const copyInviteLink = async () => {
     if (!roomCode) return;
+    // Try native share first on mobile
+    if (isNative || navigator.share) {
+      const shared = await shareInvite(roomCode);
+      if (shared) {
+        hapticLight();
+        return;
+      }
+    }
+    // Fallback to clipboard
     const text = `Join my Fantasy Flashback room: ${roomCode}\n${inviteUrl}`;
     const success = await copyToClipboard(text);
     if (success) {
+      hapticLight();
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } else {
@@ -674,6 +685,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setRoomCode(game.room_code || code);
       setGameId(game.id);
       setMySeat(1);
+      hapticLight(); // Room created
       setScreen("lobby");
     } catch (e) {
       flashNotice(`Create room failed: ${safeMsg(e)}`);
@@ -702,6 +714,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         if (!row?.game_id || !row?.seat) throw new Error("Join failed.");
         setGameId(row.game_id);
         setMySeat(Number(row.seat));
+        hapticLight(); // Joined room
         setScreen("lobby");
         return;
       } catch (_) {}
@@ -748,6 +761,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
       setGameId(game.id);
       setMySeat(seat);
+      hapticLight(); // Joined room
       setScreen("lobby");
     } catch (e) {
       flashNotice(`Join room failed: ${safeMsg(e)}`);
@@ -886,6 +900,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setTimeRemaining(ms ? Math.max(0, Math.ceil((ms - Date.now()) / 1000)) : gameSettings.pickTime || 30);
 
       setDraftView("SEARCH");
+      hapticSuccess(); // Draft starting!
       setScreen("draft");
     } catch (e) {
       flashNotice(`Start draft failed: ${safeMsg(e)}`);
@@ -1064,6 +1079,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       if (totalPicks >= rosterSize * maxP && gameWeek && !resultsComputedRef.current) {
         resultsComputedRef.current = true;
         await fetchStatsAndCalculateAll(teams);
+        hapticSuccess(); // Game complete!
         setScreen("results");
         if (mySeat === 1) await supabase.from("games").update({ status: "done" }).eq("id", gameId);
       }
@@ -1194,6 +1210,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
       const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
       if (row) {
+        hapticMedium(); // Haptic feedback on successful pick
         setTurnUserId(row.turn_user_id);
         setPickNumber(Number(row.pick_number || pickNumber + 1));
         setIsMyTurn(row.turn_user_id === userId);
@@ -1201,6 +1218,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         if (ms) setTurnDeadlineAtMs(ms);
       }
     } catch (e) {
+      hapticError(); // Haptic feedback on error
       flashNotice(`Pick failed: ${safeMsg(e)}`);
     } finally {
       setDraftBusy(false);
@@ -2350,8 +2368,8 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   onClick={copyInviteLink}
                   className="flex items-center justify-center gap-2 p-3 bg-slate-700 hover:bg-slate-600 rounded transition"
                 >
-                  {copied ? <Check size={16} /> : <LinkIcon size={16} />}
-                  Copy Invite Link
+                  {copied ? <Check size={16} /> : (isNative || navigator.share) ? <Share2 size={16} /> : <LinkIcon size={16} />}
+                  {(isNative || navigator.share) ? "Share Invite" : "Copy Invite Link"}
                 </button>
               </div>
 

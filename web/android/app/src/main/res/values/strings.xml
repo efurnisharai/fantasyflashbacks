@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fantasy Flashback</string>
+    <string name="title_activity_main">Fantasy Flashback</string>
+    <string name="package_name">com.fantasyflashback.app</string>
+    <string name="custom_url_scheme">com.fantasyflashback.app</string>
+</resources>

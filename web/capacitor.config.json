@@ -1,0 +1,14 @@
+{
+  "appId": "com.fantasyflashback.app",
+  "appName": "Fantasy Flashback",
+  "webDir": "dist",
+  "server": {
+    "url": "https://fantasyflashbacks.com",
+    "cleartext": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}
