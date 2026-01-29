@@ -68,7 +68,7 @@ export const shareInvite = async (roomCode) => {
   const shareData = {
     title: 'Fantasy Flashback',
     text: `Join my Fantasy Flashback draft!`,
-    url: `https://fantasyflashbacks.com/?join=${roomCode}`,
+    url: `https://fantasyflashbacks.com/?room=${roomCode}`,
     dialogTitle: 'Invite a friend',
   };
 
