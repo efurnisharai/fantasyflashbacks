@@ -1379,9 +1379,33 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     }
   };
 
+  // Server-side autopick: ANY connected player can trigger this when deadline passes
+  const triggerServerAutoPick = async () => {
+    if (!gameId) return;
+    if (autoPickInFlightRef.current) return;
+
+    autoPickInFlightRef.current = true;
+    try {
+      const rpcData = await rpc("ff_auto_pick_if_needed", { p_game_id: gameId });
+      const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (row) {
+        setTurnUserId(row.turn_user_id);
+        setPickNumber(Number(row.pick_number || pickNumber));
+        if (userId) setIsMyTurn(row.turn_user_id === userId);
+        const ms = toMs(row.turn_deadline_at);
+        if (ms) setTurnDeadlineAtMs(ms);
+      }
+    } catch (_) {
+      // Server handles autopick
+    } finally {
+      autoPickInFlightRef.current = false;
+    }
+  };
+
+  // Client-side autopick for when it's MY turn (uses pinned players)
   const autoPickIfNeeded = async () => {
     if (!gameId) return;
-    if (!isMyTurn) return; // Only auto-pick on YOUR turn
+    if (!isMyTurn) return;
     if (autoPickInFlightRef.current) return;
 
     autoPickInFlightRef.current = true;
@@ -1393,18 +1417,15 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         return;
       }
       if (!g || g.status !== "draft") return;
-
-      // Double-check it's still my turn on the server
       if (g.turn_user_id !== userId) return;
 
-      // CRITICAL: Check that the server's deadline has actually passed
       const serverDeadline = toMs(g.turn_deadline_at);
       if (serverDeadline && serverDeadline > Date.now()) {
-        return; // Server says time isn't up yet
+        return;
       }
 
       if (lastAutoPickTryRef.current.gameId === gameId && lastAutoPickTryRef.current.pickNumber === g.pick_number) {
-        return; // Already tried this pick
+        return;
       }
       lastAutoPickTryRef.current = { gameId, pickNumber: g.pick_number };
 
@@ -1428,7 +1449,6 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         for (const pos of positions) {
           const pinned = pinsFor(pos);
           if (pinned.length > 0) {
-            // Find the player data for the first pinned player
             const pinnedPlayer = weeklyRoster.find((p) => p.id === pinned[0] && !draftedPlayerIds.has(p.id));
             if (pinnedPlayer) {
               playerToPick = pinnedPlayer;
@@ -1441,7 +1461,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         if (playerToPick) break;
       }
 
-      // If no pinned player found, pick a RANDOM available player for first open slot
+      // If no pinned player, pick randomly
       if (!playerToPick) {
         for (const { index, slot } of openPositions) {
           const positions = slot === "FLEX" ? ["RB", "WR", "TE"] : [slot];
@@ -1449,7 +1469,6 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
             (p) => positions.includes(p.position) && !draftedPlayerIds.has(p.id)
           );
           if (available.length > 0) {
-            // Pick randomly from available players
             const randomIndex = Math.floor(Math.random() * available.length);
             playerToPick = available[randomIndex];
             slotIndex = index;
@@ -1488,14 +1507,36 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     }
   };
 
+  // When timer hits 0: if it's my turn, try client-side autopick (with pins)
   useEffect(() => {
     if (screen !== "draft") return;
     if (!turnDeadlineAtMs) return;
-    if (!isMyTurn) return; // Only auto-pick on your turn
     if (timeRemaining !== 0) return;
+    if (!isMyTurn) return;
+
     autoPickIfNeeded().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRemaining, screen, turnDeadlineAtMs, isMyTurn]);
+
+  // Poll for server-side autopick when deadline has passed and it's NOT my turn
+  // This allows any connected player to trigger autopick for disconnected players
+  useEffect(() => {
+    if (screen !== "draft") return;
+    if (!turnDeadlineAtMs) return;
+    if (!gameId) return;
+
+    // Poll every 2 seconds to check if deadline passed and trigger autopick
+    const interval = setInterval(async () => {
+      const deadlinePassed = Date.now() > turnDeadlineAtMs;
+      if (!deadlinePassed) return;
+      if (isMyTurn) return;
+      if (autoPickInFlightRef.current) return;
+      await triggerServerAutoPick();
+    }, 2000);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, turnDeadlineAtMs, gameId, isMyTurn]);
 
   const buildWeeklyRanksFromPool = (pool) => {
     const byPos = new Map();
@@ -2644,8 +2685,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
       return posFilter;
     };
 
-    const panelGlow =
-      isMyTurn
+    const lowTime = isMyTurn && timeRemaining <= 10;
+
+    const panelGlow = lowTime
+      ? "shadow-[0_0_0_1px_rgba(239,68,68,0.25),0_0_25px_rgba(239,68,68,0.08)]"
+      : isMyTurn
         ? "shadow-[0_0_0_1px_rgba(16,185,129,0.25),0_0_25px_rgba(16,185,129,0.08)]"
         : "shadow-[0_0_0_1px_rgba(139,92,246,0.25),0_0_25px_rgba(139,92,246,0.08)]";
 
@@ -2717,9 +2761,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     );
 
     const myTeamPanel = (
-      <div className={`bg-slate-800 rounded-lg p-4 border-2 ${isMyTurn ? "border-emerald-500" : "border-slate-700"}`}>
+      <div className={`bg-slate-800 rounded-lg p-4 border-2 ${lowTime ? "border-red-500" : isMyTurn ? "border-emerald-500" : "border-slate-700"}`}>
         <h3 className="font-bold mb-3 flex items-center gap-2">
-          <Users size={18} className={isMyTurn ? "text-emerald-300" : "text-slate-300"} />
+          <Users size={18} className={lowTime ? "text-red-300" : isMyTurn ? "text-emerald-300" : "text-slate-300"} />
           Your Team
         </h3>
         <div className="space-y-2">
@@ -2750,11 +2794,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     );
 
     const searchPanel = (
-      <div className={`bg-slate-800 rounded-lg p-4 border ${isMyTurn ? "border-emerald-500/50" : "border-violet-500/50"} ${panelGlow}`}>
+      <div className={`bg-slate-800 rounded-lg p-4 border ${lowTime ? "border-red-500/50" : isMyTurn ? "border-emerald-500/50" : "border-violet-500/50"} ${panelGlow}`}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold">Player Search</h3>
           {isMyTurn ? (
-            <span className="text-xs bg-emerald-600 px-2 py-1 rounded font-bold">Draft enabled</span>
+            <span className={`text-xs px-2 py-1 rounded font-bold ${lowTime ? "bg-red-600" : "bg-emerald-600"}`}>Draft enabled</span>
           ) : (
             <span className="text-xs bg-violet-600 px-2 py-1 rounded font-bold">Pin mode</span>
           )}
@@ -2836,13 +2880,17 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             </div>
 
             <div className="mt-3 text-xs text-slate-400">
-              {footerText}{" "}
-              {searchTotal > searchResults.length && (
-                <button onClick={showMoreResults} className="ml-1 px-3 py-2 underline hover:text-white min-h-11" disabled={searchingMore || draftBusy}>
-                  {searchingMore ? "Searching for more..." : "Show more"}
-                </button>
-              )}
+              {footerText}
             </div>
+            {searchTotal > searchResults.length && (
+              <button
+                onClick={showMoreResults}
+                className="mt-3 w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+                disabled={searchingMore || draftBusy}
+              >
+                {searchingMore ? "Loading more players..." : `Show more players (${searchResults.length} of ${searchTotal})`}
+              </button>
+            )}
           </>
         ) : (
           <div className="text-center py-8 text-slate-400">
@@ -2856,7 +2904,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     return (
       <div
         className={`min-h-screen text-white p-4 transition-colors ${
-          isMyTurn ? "bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-900" : "bg-gradient-to-br from-violet-950 via-slate-900 to-slate-900"
+          lowTime
+            ? "bg-gradient-to-br from-red-950 via-slate-900 to-slate-900"
+            : isMyTurn
+              ? "bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-900"
+              : "bg-gradient-to-br from-violet-950 via-slate-900 to-slate-900"
         }`}
       >
         <div className="max-w-7xl mx-auto py-4">
@@ -2873,42 +2925,39 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             </div>
           )}
 
-          <div
-            className={`mb-4 rounded-lg border px-4 py-3 flex items-center justify-between transition-all ${panelGlow} ${
-              isMyTurn ? "border-emerald-500/60 bg-emerald-900/15" : "border-violet-500/60 bg-violet-900/15"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div className={`h-2.5 w-2.5 rounded-full ${isMyTurn ? "bg-emerald-400 animate-pulse" : "bg-violet-400"}`} />
-              <div className="font-bold tracking-wide">{isMyTurn ? "YOUR TURN — YOU ARE ON THE CLOCK" : "WAITING — PIN MODE"}</div>
-              <div className="text-xs text-slate-300">{isMyTurn ? "Make your pick before the timer hits 0." : "Pin players while you wait."}</div>
-            </div>
-            <div className={`text-xs font-bold px-2 py-1 rounded ${isMyTurn ? "bg-emerald-600/80" : "bg-violet-600/80"}`}>
-              {isMyTurn ? "DRAFT ENABLED" : "PIN MODE"}
-            </div>
-          </div>
-
           {gameWeek && (
-            <div className="text-center mb-4">
-              <h2 className="text-3xl font-bold mb-1">
-                Week {gameWeek.week}, {gameWeek.season}
-              </h2>
-              <p className="text-slate-300">
-                Pick #{pickDisplay} • {isMyTurn ? "Your turn" : "Not your turn"} •{" "}
-                {gameSettings.scoring === "half-ppr" ? "Half PPR" : gameSettings.scoring.toUpperCase()} • {players.length} players
-              </p>
-
-              <div className="mt-3 flex items-center justify-center gap-3">
-                <Clock className={isMyTurn ? (timeRemaining <= 10 ? "text-red-400 animate-pulse" : "text-emerald-300") : "text-violet-300"} size={22} />
-                <span className={`text-xl font-bold ${isMyTurn ? (timeRemaining <= 10 ? "text-red-400" : "text-emerald-300") : "text-violet-300"}`}>
-                  {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, "0")}
-                </span>
+            <div
+              className={`mb-4 rounded-lg border px-4 py-3 transition-all ${panelGlow} ${
+                lowTime
+                  ? "border-red-500/60 bg-red-900/15"
+                  : isMyTurn
+                    ? "border-emerald-500/60 bg-emerald-900/15"
+                    : "border-violet-500/60 bg-violet-900/15"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-2xl font-bold">
+                    Week {gameWeek.week}, {gameWeek.season}
+                  </h2>
+                  <div className={`text-xs font-bold px-2 py-1 rounded ${lowTime ? "bg-red-600/80" : isMyTurn ? "bg-emerald-600/80" : "bg-violet-600/80"}`}>
+                    {isMyTurn ? "DRAFT" : "PIN"}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock className={lowTime ? "text-red-400 animate-pulse" : isMyTurn ? "text-emerald-300" : "text-violet-300"} size={20} />
+                  <span className={`text-2xl font-bold tabular-nums ${lowTime ? "text-red-400" : isMyTurn ? "text-emerald-300" : "text-violet-300"}`}>
+                    {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, "0")}
+                  </span>
+                </div>
               </div>
-
-              <div className="mt-1 text-xs text-slate-400">
-                Server pick #: {pickNumber} • Deadline: {turnDeadlineAtMs ? new Date(turnDeadlineAtMs).toLocaleTimeString() : "—"}
+              <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                <span>Pick {pickDisplay}</span>
+                <span>•</span>
+                <span>{gameSettings.scoring === "half-ppr" ? "Half PPR" : gameSettings.scoring.toUpperCase()}</span>
+                <span>•</span>
+                <span>{players.length} players</span>
               </div>
-
               {!weeklyRoster.length && <div className="text-xs text-slate-300 mt-2">Loading roster…</div>}
               {draftBusy && <div className="text-xs text-slate-300 mt-1">Submitting…</div>}
             </div>
