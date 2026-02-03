@@ -1226,10 +1226,11 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setDraftedPlayerIds(drafted);
       setTeamsByUser(teams);
 
-      const maxP = Math.max(2, Math.min(12, Number(gameSettings.maxPlayers || players.length || 2)));
+      // Use actual player count (not maxPlayers setting) for completion check
+      const actualPlayerCount = players?.length || 2;
       const totalPicks = (picks ?? []).length;
 
-      if (totalPicks >= rosterSize * maxP && gameWeek && !resultsComputedRef.current) {
+      if (totalPicks >= rosterSize * actualPlayerCount && gameWeek && !resultsComputedRef.current) {
         resultsComputedRef.current = true;
         await fetchStatsAndCalculateAll(teams);
         hapticSuccess(); // Game complete!
@@ -1256,7 +1257,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       clearInterval(poll);
       supabase.removeChannel(channel);
     };
-  }, [gameId, userId, rosterSize, weeklyRoster, gameWeek, screen, mySeat, players, gameSettings.maxPlayers]);
+  }, [gameId, userId, rosterSize, weeklyRoster, gameWeek, screen, mySeat, players]);
 
   const togglePinned = (bucketPos, playerId) => {
     setPinnedByPos((prev) => {
