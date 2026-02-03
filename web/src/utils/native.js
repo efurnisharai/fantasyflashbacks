@@ -67,7 +67,7 @@ export const hapticError = async () => {
 export const shareInvite = async (roomCode) => {
   const shareData = {
     title: 'Fantasy Flashback',
-    text: `Join my Fantasy Flashback draft!`,
+    text: `Join my Fantasy Flashback draft! Room code: ${roomCode}`,
     url: `https://fantasyflashbacks.com/?room=${roomCode}`,
     dialogTitle: 'Invite a friend',
   };

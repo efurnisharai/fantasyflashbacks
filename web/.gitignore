@@ -24,3 +24,4 @@ android/.idea/
 
 # Capacitor
 capacitor.config.json.backup
+.vercel

@@ -216,6 +216,11 @@ export default function FantasyFootballDraft() {
 
   const [shareCopied, setShareCopied] = useState(false);
 
+  // Rematch state
+  const [rematchRequested, setRematchRequested] = useState(false);
+  const [rematchStatus, setRematchStatus] = useState({ ready: 0, total: 0 });
+  const [rematchPending, setRematchPending] = useState(false);
+
   // User profile state
   const [userProfile, setUserProfile] = useState(null);
   const [isAnonymous, setIsAnonymous] = useState(true);
@@ -694,6 +699,83 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     }
   };
 
+  // Handle transition to a rematch game
+  const handleRematchStart = (newGameId, newRoomCode) => {
+    // Reset refs
+    rosterLoadedRef.current = false;
+    resultsComputedRef.current = false;
+    autoPickInFlightRef.current = false;
+    lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+
+    // Clear game-specific state but preserve settings
+    setDraftedPlayerIds(new Set());
+    setPinnedByPos({});
+    setTeamsByUser({});
+    setResultsByUser({});
+    setWeeklyRankInfoById({});
+    setGlobalBestLineup(null);
+    setGameWeek(null);
+    setPosFilter("ALL");
+    setTeamFilter("ALL");
+    setSearchQuery("");
+    setSearchResults([]);
+    setTurnDeadlineAtMs(null);
+    setTimeRemaining(gameSettings.pickTime || 30);
+    setDraftBusy(false);
+    setMatchmakingStatus("");
+    setDraftView("SEARCH");
+    setWeeklyRoster([]);
+    setPlayers([]);
+
+    // Reset rematch state
+    setRematchRequested(false);
+    setRematchStatus({ ready: 0, total: 0 });
+    setRematchPending(false);
+
+    // Set new game info
+    setGameId(newGameId);
+    setRoomCode(newRoomCode);
+    setMySeat(null); // Will be updated via realtime subscription
+
+    // Go to lobby
+    hapticSuccess();
+    setScreen("lobby");
+  };
+
+  // Request a rematch with all players
+  const requestRematch = async () => {
+    if (rematchPending || !gameId || !userId) return;
+
+    try {
+      setRematchPending(true);
+      setRematchRequested(true);
+      hapticLight();
+
+      const result = await rpc("ff_request_rematch", {
+        p_game_id: gameId,
+        p_user_id: userId,
+      });
+
+      const row = Array.isArray(result) ? result[0] : result;
+
+      if (row?.rematch_ready && row?.new_game_id) {
+        // All players ready - transition to new game
+        handleRematchStart(row.new_game_id, row.new_room_code);
+      } else {
+        // Update status display
+        setRematchStatus({
+          ready: row?.players_ready || 1,
+          total: row?.players_total || players.filter((p) => p.is_active).length,
+        });
+      }
+    } catch (e) {
+      flashNotice(`Rematch failed: ${safeMsg(e)}`);
+      setRematchRequested(false);
+    } finally {
+      setRematchPending(false);
+    }
+  };
+
   const joinRoom = async () => {
     if (busy) return;
     if (!playerName.trim()) return;
@@ -918,6 +1000,11 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         const list = await fetchPlayers(gameId);
         if (cancelled) return;
         setPlayers(list);
+        // Find and set our seat from the players list
+        if (userId) {
+          const me = list.find((p) => p.user_id === userId);
+          if (me) setMySeat((prev) => prev ?? me.seat);
+        }
       } catch (_) {}
     };
 
@@ -937,7 +1024,69 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       clearInterval(poll);
       supabase.removeChannel(channel);
     };
-  }, [gameId, screen]);
+  }, [gameId, screen, userId]);
+
+  // Subscribe to rematch updates on results screen
+  useEffect(() => {
+    if (!gameId || screen !== "results") return;
+    let cancelled = false;
+
+    const checkRematchStatus = async () => {
+      if (cancelled) return;
+
+      try {
+        const { data: playerList } = await supabase
+          .from("game_players")
+          .select("user_id, is_active, rematch_requested")
+          .eq("game_id", gameId);
+
+        if (cancelled || !playerList) return;
+
+        const active = playerList.filter((p) => p.is_active);
+        const ready = active.filter((p) => p.rematch_requested);
+
+        setRematchStatus({
+          ready: ready.length,
+          total: active.length,
+        });
+
+        // Check if everyone is ready (but we didn't initiate the final trigger)
+        if (ready.length === active.length && active.length >= 2 && !rematchPending) {
+          // Poll for the new game that was created
+          const { data: newGame } = await supabase
+            .from("games")
+            .select("id, room_code")
+            .eq("rematch_of_game_id", gameId)
+            .maybeSingle();
+
+          if (newGame && !cancelled) {
+            handleRematchStart(newGame.id, newGame.room_code);
+          }
+        }
+      } catch (_) {}
+    };
+
+    const channel = supabase
+      .channel(`rematch:${gameId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "game_players", filter: `game_id=eq.${gameId}` },
+        checkRematchStatus
+      )
+      .subscribe();
+
+    // Initial check
+    checkRematchStatus();
+
+    // Also poll as backup
+    const poll = setInterval(checkRematchStatus, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
+  }, [gameId, screen, rematchPending]);
 
   useEffect(() => {
     if (!gameId) return;
@@ -2605,11 +2754,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                     <div className="flex items-center gap-2 min-w-0">
                       <button
                         onClick={() => togglePinned(bucket, p.id)}
-                        className="p-2 bg-slate-600 hover:bg-slate-500 rounded"
+                        className="p-3 bg-slate-600 hover:bg-slate-500 rounded min-w-11 min-h-11 flex items-center justify-center"
                         title={pinned ? "Unpin" : "Pin"}
                         disabled={draftBusy}
                       >
-                        <Star size={16} className={pinned ? "text-yellow-300" : "text-slate-300"} />
+                        <Star size={18} className={pinned ? "text-yellow-300" : "text-slate-300"} />
                       </button>
 
                       <span className={`text-xs font-bold px-2 py-1 rounded ${POSITION_COLORS[p.position]?.text || "text-white"} bg-slate-600`}>
@@ -2628,7 +2777,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                     <button
                       onClick={() => manualDraft(p)}
                       disabled={!pickBtnEnabled(p)}
-                      className={`px-3 py-2 rounded font-bold transition text-sm ${
+                      className={`px-4 py-3 rounded font-bold transition text-sm min-h-11 ${
                         pickBtnEnabled(p) ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-600 text-slate-400 cursor-not-allowed"
                       }`}
                     >
@@ -2642,7 +2791,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             <div className="mt-3 text-xs text-slate-400">
               {footerText}{" "}
               {searchTotal > searchResults.length && (
-                <button onClick={showMoreResults} className="ml-2 underline hover:text-white" disabled={searchingMore || draftBusy}>
+                <button onClick={showMoreResults} className="ml-1 px-3 py-2 underline hover:text-white min-h-11" disabled={searchingMore || draftBusy}>
                   {searchingMore ? "Searching for more..." : "Show more"}
                 </button>
               )}
@@ -2897,97 +3046,165 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               </div>
 
 
-              <div className="flex justify-center gap-4">
-  <button
-    onClick={async () => {
-      // Leave the current game (best-effort), then start a fresh room with the same settings.
-      try {
-        await markLeft();
-      } catch (_) {}
+              <div className="flex flex-col items-center gap-4">
+                {/* Rematch Section */}
+                <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 w-full max-w-md">
+                  <div className="text-center mb-3">
+                    <h3 className="font-semibold text-lg">Play Again Together</h3>
+                    <p className="text-sm text-slate-400">Same players, same settings, new week</p>
+                  </div>
 
-      rosterLoadedRef.current = false;
-      resultsComputedRef.current = false;
-      autoPickInFlightRef.current = false;
-      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+                  {rematchStatus.total >= 2 && (
+                    <div className="mb-3">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Players Ready</span>
+                        <span className="font-bold">
+                          {rematchStatus.ready} / {rematchStatus.total}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 transition-all duration-300"
+                          style={{ width: `${(rematchStatus.ready / rematchStatus.total) * 100}%` }}
+                        />
+                      </div>
+                      {rematchStatus.ready > 0 && rematchStatus.ready < rematchStatus.total && (
+                        <p className="text-xs text-slate-400 mt-1 text-center">
+                          Waiting for {rematchStatus.total - rematchStatus.ready} more player
+                          {rematchStatus.total - rematchStatus.ready > 1 ? "s" : ""}...
+                        </p>
+                      )}
+                    </div>
+                  )}
 
-      // Clear game-specific state but keep playerName + gameSettings (so rematch is fast)
-      setGameId(null);
-      setMySeat(null);
-      setPlayers([]);
-      setWeeklyRoster([]);
-      setDraftedPlayerIds(new Set());
-      setPinnedByPos({});
-      setTeamsByUser({});
-      setResultsByUser({});
-      setWeeklyRankInfoById({});
-      setGlobalBestLineup(null);
-      setGameWeek(null);
-      setPosFilter("ALL");
-      setTeamFilter("ALL");
-      setSearchQuery("");
-      setSearchResults([]);
-      setTurnDeadlineAtMs(null);
-      setTimeRemaining(gameSettings.pickTime || 30);
-      setDraftBusy(false);
-      setMatchmakingStatus("");
-      setDraftView("SEARCH");
-      setInviteRoom(null);
-      inviteAutoJoinRef.current = false;
-      flashNotice("");
+                  <button
+                    onClick={requestRematch}
+                    disabled={rematchPending || rematchRequested || busy || rematchStatus.total < 2}
+                    className={`w-full py-3 rounded-lg font-bold transition flex items-center justify-center gap-2 min-h-11
+                      ${rematchRequested ? "bg-emerald-600 cursor-default" : "bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600"}
+                      disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {rematchPending ? (
+                      <>
+                        <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                        Starting Rematch...
+                      </>
+                    ) : rematchRequested ? (
+                      <>
+                        <Check size={18} />
+                        Ready for Rematch
+                      </>
+                    ) : rematchStatus.total < 2 ? (
+                      "Need 2+ players for rematch"
+                    ) : (
+                      <>
+                        <Users size={18} />
+                        Rematch
+                      </>
+                    )}
+                  </button>
+                </div>
 
-      // Force rematch to be a new private room (so you can re-invite the same players)
-      setGameSettings((p) => ({ ...p, joinMode: "code" }));
+                {/* Divider */}
+                <div className="flex items-center gap-3 w-full max-w-md">
+                  <div className="flex-1 h-px bg-slate-700" />
+                  <span className="text-slate-500 text-sm">or</span>
+                  <div className="flex-1 h-px bg-slate-700" />
+                </div>
 
-      // Kick off a new room immediately (createRoom uses current playerName + settings)
-      setTimeout(() => {
-        createRoom().catch?.(() => {});
-      }, 0);
-    }}
-    disabled={busy || !playerName.trim()}
-    className="bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-700 disabled:cursor-not-allowed px-6 py-3 rounded-lg font-bold transition"
-  >
-    New Game
-  </button>
+                {/* Other Options */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await markLeft();
+                      } catch (_) {}
 
-  <button
-    onClick={() => {
-      markLeft();
+                      rosterLoadedRef.current = false;
+                      resultsComputedRef.current = false;
+                      autoPickInFlightRef.current = false;
+                      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
 
-      rosterLoadedRef.current = false;
-      resultsComputedRef.current = false;
-      autoPickInFlightRef.current = false;
-      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+                      setGameId(null);
+                      setMySeat(null);
+                      setPlayers([]);
+                      setWeeklyRoster([]);
+                      setDraftedPlayerIds(new Set());
+                      setPinnedByPos({});
+                      setTeamsByUser({});
+                      setResultsByUser({});
+                      setWeeklyRankInfoById({});
+                      setGlobalBestLineup(null);
+                      setGameWeek(null);
+                      setPosFilter("ALL");
+                      setTeamFilter("ALL");
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setTurnDeadlineAtMs(null);
+                      setTimeRemaining(gameSettings.pickTime || 30);
+                      setDraftBusy(false);
+                      setMatchmakingStatus("");
+                      setDraftView("SEARCH");
+                      setInviteRoom(null);
+                      inviteAutoJoinRef.current = false;
+                      setRematchRequested(false);
+                      setRematchStatus({ ready: 0, total: 0 });
+                      flashNotice("");
 
-      setScreen("setup");
-      setGameId(null);
-      setMySeat(null);
-      setPlayers([]);
-      setWeeklyRoster([]);
-      setDraftedPlayerIds(new Set());
-      setPinnedByPos({});
-      setTeamsByUser({});
-      setResultsByUser({});
-      setWeeklyRankInfoById({});
-      setGlobalBestLineup(null);
-      setGameWeek(null);
-      setPosFilter("ALL");
-      setTeamFilter("ALL");
-      setSearchQuery("");
-      setSearchResults([]);
-      setTurnDeadlineAtMs(null);
-      setTimeRemaining(gameSettings.pickTime || 30);
-      setDraftBusy(false);
-      setMatchmakingStatus("");
-      setDraftView("SEARCH");
-      setInviteRoom(null);
-      inviteAutoJoinRef.current = false;
-      flashNotice("");
-    }}
-    className="bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-lg font-bold transition"
-  >
-    Back to Menu
-  </button>
-</div>
+                      setGameSettings((p) => ({ ...p, joinMode: "code" }));
+
+                      setTimeout(() => {
+                        createRoom().catch?.(() => {});
+                      }, 0);
+                    }}
+                    disabled={busy || !playerName.trim()}
+                    className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-6 py-3 rounded-lg font-bold transition"
+                  >
+                    New Game
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      markLeft();
+
+                      rosterLoadedRef.current = false;
+                      resultsComputedRef.current = false;
+                      autoPickInFlightRef.current = false;
+                      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+
+                      setScreen("setup");
+                      setGameId(null);
+                      setMySeat(null);
+                      setPlayers([]);
+                      setWeeklyRoster([]);
+                      setDraftedPlayerIds(new Set());
+                      setPinnedByPos({});
+                      setTeamsByUser({});
+                      setResultsByUser({});
+                      setWeeklyRankInfoById({});
+                      setGlobalBestLineup(null);
+                      setGameWeek(null);
+                      setPosFilter("ALL");
+                      setTeamFilter("ALL");
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setTurnDeadlineAtMs(null);
+                      setTimeRemaining(gameSettings.pickTime || 30);
+                      setDraftBusy(false);
+                      setMatchmakingStatus("");
+                      setDraftView("SEARCH");
+                      setInviteRoom(null);
+                      inviteAutoJoinRef.current = false;
+                      setRematchRequested(false);
+                      setRematchStatus({ ready: 0, total: 0 });
+                      flashNotice("");
+                    }}
+                    className="bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-lg font-bold transition"
+                  >
+                    Back to Menu
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>
