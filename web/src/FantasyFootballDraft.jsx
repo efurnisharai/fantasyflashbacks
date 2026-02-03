@@ -137,6 +137,7 @@ export default function FantasyFootballDraft() {
     maxPlayers: 2,
     joinMode: "code",
     autoStartWhenFull: true,
+    lobbyMode: "fixed", // "fixed" = wait for exact player count, "open" = start with 2+ players
 
     // Only applicable when maxPlayers >= 3. For 2 players, server should always run alternating.
     snakeDraft: true,
@@ -1142,13 +1143,15 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     if (mySeat !== 1) return;
     if (!gameId || !userId) return;
     if (!gameSettings.autoStartWhenFull) return;
+    // Only auto-start in fixed mode when full (open lobby requires manual start)
+    if (gameSettings.lobbyMode === "open") return;
 
     const maxP = effectiveMaxPlayers;
     if ((players?.length || 0) >= maxP) {
       startDraft().catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, mySeat, players, gameSettings.autoStartWhenFull, effectiveMaxPlayers, gameId, userId]);
+  }, [screen, mySeat, players, gameSettings.autoStartWhenFull, gameSettings.lobbyMode, effectiveMaxPlayers, gameId, userId]);
 
   useEffect(() => {
     if (!gameWeek || !gameId) return;
@@ -2276,12 +2279,42 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-6">
               <h2 className="text-xl font-bold mb-4">Game Settings</h2>
 
-              <label className="block text-sm font-semibold mb-2">Lobby Size</label>
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                {sizeBtn(2)}
-                {sizeBtn(3)}
-                {sizeBtn(4)}
+              <label className="block text-sm font-semibold mb-2">Lobby Type</label>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <button
+                  onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "fixed", maxPlayers: 2 }))}
+                  className={`p-3 rounded-lg text-sm font-medium transition ${
+                    gameSettings.lobbyMode === "fixed"
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  }`}
+                >
+                  Fixed Size
+                  <div className="text-xs opacity-70 mt-1">Wait for exact count</div>
+                </button>
+                <button
+                  onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "open", maxPlayers: 8 }))}
+                  className={`p-3 rounded-lg text-sm font-medium transition ${
+                    gameSettings.lobbyMode === "open"
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  }`}
+                >
+                  Open Lobby
+                  <div className="text-xs opacity-70 mt-1">Start with 2-8 players</div>
+                </button>
               </div>
+
+              {gameSettings.lobbyMode === "fixed" && (
+                <>
+                  <label className="block text-sm font-semibold mb-2">Player Count</label>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    {sizeBtn(2)}
+                    {sizeBtn(3)}
+                    {sizeBtn(4)}
+                  </div>
+                </>
+              )}
 
               <label className="block text-sm font-semibold mb-2">Roster Construction</label>
               <div className="grid grid-cols-2 gap-3">
@@ -2485,6 +2518,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
 
   if (screen === "lobby") {
     const maxP = effectiveMaxPlayers;
+    const isOpenLobby = gameSettings.lobbyMode === "open";
+    const minPlayers = isOpenLobby ? 2 : maxP;
+    const canStart = (players?.length || 0) >= minPlayers;
     const isFull = (players?.length || 0) >= maxP;
 
     return (
@@ -2524,7 +2560,10 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               </div>
 
               <p className="text-xs text-slate-400 text-center mt-3">
-                {players.length}/{maxP} players joined • Your seat: {mySeat || "—"}
+                {isOpenLobby
+                  ? `${players.length} player${players.length !== 1 ? "s" : ""} joined (2-${maxP} can play)`
+                  : `${players.length}/${maxP} players joined`}
+                {" • "}Your seat: {mySeat || "—"}
               </p>
               <p className="text-xs text-slate-500 text-center mt-1">
                 Draft order randomizes on start • Snake: {snakeAllowed ? (gameSettings.snakeDraft ? "ON" : "OFF") : "OFF (2 players)"}
@@ -2548,18 +2587,24 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 );
               })}
 
-              {players.length < maxP && (
-                <div className="bg-slate-700 rounded-lg p-4 flex items-center justify-center text-slate-400">Waiting for players…</div>
+              {!isFull && (
+                <div className="bg-slate-700 rounded-lg p-4 flex items-center justify-center text-slate-400">
+                  {isOpenLobby && canStart ? "Waiting for more players (optional)…" : "Waiting for players…"}
+                </div>
               )}
             </div>
 
             {mySeat === 1 ? (
               <button
                 onClick={startDraft}
-                disabled={busy || !isFull}
+                disabled={busy || !canStart}
                 className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed py-4 rounded-lg font-bold text-lg transition"
               >
-                {busy ? "Starting..." : isFull ? "Start Draft" : `Need ${maxP - players.length} more`}
+                {busy
+                  ? "Starting..."
+                  : canStart
+                  ? `Start Draft (${players.length} player${players.length !== 1 ? "s" : ""})`
+                  : `Need ${minPlayers - players.length} more player${minPlayers - players.length !== 1 ? "s" : ""}`}
               </button>
             ) : (
               <div className="text-center text-slate-400">Waiting for host to start…</div>
