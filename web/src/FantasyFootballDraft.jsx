@@ -769,6 +769,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         });
       }
     } catch (e) {
+      console.error("Rematch error:", e);
       flashNotice(`Rematch failed: ${safeMsg(e)}`);
       setRematchRequested(false);
     } finally {
@@ -2972,6 +2973,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-4">
         <div className="max-w-5xl mx-auto py-8">
+          {notice && (
+            <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-900/15 px-4 py-3 text-sm text-amber-100">
+              {notice}
+            </div>
+          )}
           {loadingStats ? (
             <div className="text-center">
               <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
