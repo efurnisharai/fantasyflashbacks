@@ -525,6 +525,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   const fetchDailyChallenge = async (uid) => {
     try {
       const data = await rpc("ff_assign_daily_challenge", { p_user_id: uid });
+      console.log("Daily challenge data:", data);
       if (data && data.length > 0) {
         setDailyChallenge({
           ...data[0],
@@ -535,6 +536,8 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           ...data,
           is_completed: data.current_value >= data.target_value,
         });
+      } else {
+        console.log("No daily challenge returned from database");
       }
     } catch (e) {
       console.warn("Failed to fetch daily challenge:", e);
