@@ -439,13 +439,19 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   const fetchSkillRating = async (uid) => {
     try {
       const data = await rpc("ff_calculate_skill_rating", { p_user_id: uid });
+      console.log("Skill rating data:", data);
       if (data && data.length > 0) {
         setSkillRating(data[0]);
       } else if (data && typeof data.skill_score !== "undefined") {
         setSkillRating(data);
+      } else {
+        // Set default values if no data returned
+        setSkillRating({ skill_score: 0, win_rate: 0, avg_margin: 0, avg_opponents: 2, games_rated: 0 });
       }
     } catch (e) {
       console.warn("Failed to fetch skill rating:", e);
+      // Set default values on error so the section still shows
+      setSkillRating({ skill_score: 0, win_rate: 0, avg_margin: 0, avg_opponents: 2, games_rated: 0 });
     }
   };
 
