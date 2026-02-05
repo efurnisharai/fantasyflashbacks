@@ -381,6 +381,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     rare: "from-blue-600 to-blue-700 border-blue-400",
     epic: "from-purple-600 to-purple-700 border-purple-400",
     legendary: "from-amber-500 to-orange-600 border-amber-400",
+    mythic: "from-pink-500 via-purple-500 to-cyan-500 border-pink-400 animate-pulse",
   };
 
   // Fetch engagement stats (Flashback Points, tier, streak, etc.)
