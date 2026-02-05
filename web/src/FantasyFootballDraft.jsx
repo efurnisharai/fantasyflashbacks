@@ -527,14 +527,30 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       const data = await rpc("ff_assign_daily_challenge", { p_user_id: uid });
       console.log("Daily challenge data:", data);
       if (data && data.length > 0) {
+        const d = data[0];
+        // Map the prefixed column names from the SQL function
         setDailyChallenge({
-          ...data[0],
-          is_completed: data[0].current_value >= data[0].target_value,
+          challenge_id: d.out_challenge_id || d.challenge_id,
+          challenge_name: d.challenge_name,
+          challenge_description: d.challenge_description,
+          challenge_type: d.out_challenge_type || d.challenge_type,
+          target_value: d.out_target_value ?? d.target_value,
+          current_value: d.out_current_value ?? d.current_value,
+          fp_reward: d.out_fp_reward ?? d.fp_reward,
+          expires_at: d.out_expires_at || d.expires_at,
+          is_completed: (d.out_current_value ?? d.current_value) >= (d.out_target_value ?? d.target_value),
         });
-      } else if (data && data.challenge_id) {
+      } else if (data && (data.out_challenge_id || data.challenge_id)) {
         setDailyChallenge({
-          ...data,
-          is_completed: data.current_value >= data.target_value,
+          challenge_id: data.out_challenge_id || data.challenge_id,
+          challenge_name: data.challenge_name,
+          challenge_description: data.challenge_description,
+          challenge_type: data.out_challenge_type || data.challenge_type,
+          target_value: data.out_target_value ?? data.target_value,
+          current_value: data.out_current_value ?? data.current_value,
+          fp_reward: data.out_fp_reward ?? data.fp_reward,
+          expires_at: data.out_expires_at || data.expires_at,
+          is_completed: (data.out_current_value ?? data.current_value) >= (data.out_target_value ?? data.target_value),
         });
       } else {
         console.log("No daily challenge returned from database");
