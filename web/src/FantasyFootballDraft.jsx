@@ -2500,7 +2500,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 <div>
                   <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
                     <span className="bg-gradient-to-r from-emerald-300 to-purple-300 bg-clip-text text-transparent">
-                      Fantasy Flashbackss
+                      Fantasy Flashbacks
                     </span>
                   </h1>
                   <p className="text-slate-300 text-sm mt-1">Draft Classic NFL Weeks Live</p>
