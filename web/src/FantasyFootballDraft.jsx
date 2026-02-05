@@ -880,7 +880,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       }
     }
     // Fallback to clipboard
-    const text = `Join my Fantasy Flashback room: ${roomCode}\n${inviteUrl}`;
+    const text = `Join my Fantasy Flashbacks room: ${roomCode}\n${inviteUrl}`;
     const success = await copyToClipboard(text);
     if (success) {
       hapticLight();
@@ -2343,10 +2343,10 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
       const winners = scoreboard.filter((x) => Math.abs(x.total - top) < 1e-9);
       const header =
         winners.length === 0
-          ? "Fantasy Flashback Results"
+          ? "Fantasy Flashbacks Results"
           : winners.length === 1
-          ? `Fantasy Flashback Winner: ${winners[0].name}`
-          : `Fantasy Flashback Tie: ${winners.map((w) => w.name).join(", ")}`;
+          ? `Fantasy Flashbacks Winner: ${winners[0].name}`
+          : `Fantasy Flashbacks Tie: ${winners.map((w) => w.name).join(", ")}`;
 
       const wk = gameWeek ? `Week ${gameWeek.week}, ${gameWeek.season}` : "";
       const lines = scoreboard.map((s, i) => `${i + 1}. ${s.name} — ${s.total.toFixed(1)}`);
@@ -2354,7 +2354,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
       const text = [header, wk, "", ...lines, "", window.location.href].filter(Boolean).join("\n");
 
       if (navigator.share) {
-        await navigator.share({ title: "Fantasy Flashback Results", text });
+        await navigator.share({ title: "Fantasy Flashbacks Results", text });
       } else {
         await navigator.clipboard.writeText(text);
         setShareCopied(true);
@@ -2427,7 +2427,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               <div className="flex items-center gap-3 mb-4">
                 <img
                   src="/favicon.svg"
-                  alt="Fantasy Flashback"
+                  alt="Fantasy Flashbacks"
                   className="w-10 h-10"
                   onError={(e) => {
                     e.currentTarget.src = "/favicon.ico";
@@ -2491,7 +2491,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               <div className="flex items-center gap-3">
                 <img
                   src="/favicon.svg"
-                  alt="Fantasy Flashback"
+                  alt="Fantasy Flashbacks"
                   className="w-10 h-10"
                   onError={(e) => {
                     e.currentTarget.src = "/favicon.ico";
@@ -2500,10 +2500,10 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 <div>
                   <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
                     <span className="bg-gradient-to-r from-emerald-300 to-purple-300 bg-clip-text text-transparent">
-                      Fantasy Flashback
+                      Fantasy Flashbackss
                     </span>
                   </h1>
-                  <p className="text-slate-300 text-sm mt-1">Draft classic NFL weeks live — 2 to 4 players.</p>
+                  <p className="text-slate-300 text-sm mt-1">Draft Classic NFL Weeks Live</p>
                 </div>
               </div>
 
@@ -3288,7 +3288,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                               </button>
                               <button
                                 onClick={() => {
-                                  const text = `Join me on Fantasy Flashback! Use my referral code ${code} to get bonus rewards. https://fantasyflashbacks.com`;
+                                  const text = `Join me on Fantasy Flashbacks! Use my referral code ${code} to get bonus rewards. https://fantasyflashbacks.com`;
                                   if (navigator.share) {
                                     navigator.share({ text });
                                   } else {
