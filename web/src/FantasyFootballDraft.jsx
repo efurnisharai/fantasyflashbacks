@@ -13,6 +13,10 @@ import {
   Star,
   Share2,
   ChevronDown,
+  Flame,
+  Zap,
+  TrendingUp,
+  Gift,
 } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import { scorePlayerRow, scoreDstRow } from "./lib/scoring";
@@ -138,6 +142,7 @@ export default function FantasyFootballDraft() {
     joinMode: "code",
     autoStartWhenFull: true,
     lobbyMode: "fixed", // "fixed" = wait for exact player count, "open" = start with 2+ players
+    gameMode: "multiplayer", // "multiplayer" or "solo"
 
     // Only applicable when maxPlayers >= 3. For 2 players, server should always run alternating.
     snakeDraft: true,
@@ -228,6 +233,36 @@ export default function FantasyFootballDraft() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
+
+  // Engagement system state
+  const [engagementStats, setEngagementStats] = useState(null);
+  const [userBadges, setUserBadges] = useState([]);
+  const [lastGameFpEarned, setLastGameFpEarned] = useState(null); // FP earned in the most recent game
+
+  // Friends system state
+  const [friendsList, setFriendsList] = useState([]);
+  const [friendRequests, setFriendRequests] = useState([]);
+  const [recentPlayers, setRecentPlayers] = useState([]);
+  const [showFriendsModal, setShowFriendsModal] = useState(false);
+  const [friendsTab, setFriendsTab] = useState("friends"); // "friends", "requests", "add"
+  const [friendSearchId, setFriendSearchId] = useState("");
+  const [friendSearchResult, setFriendSearchResult] = useState(null);
+  const [friendSearchError, setFriendSearchError] = useState("");
+
+  // Daily challenge state
+  const [dailyChallenge, setDailyChallenge] = useState(null);
+
+  // Referral system state
+  const [referralStats, setReferralStats] = useState(null);
+  const [showReferralModal, setShowReferralModal] = useState(false);
+  const [referralCodeInput, setReferralCodeInput] = useState("");
+  const [referralApplyResult, setReferralApplyResult] = useState(null);
+
+  // Skill rating state
+  const [skillRating, setSkillRating] = useState(null);
+
+  // Friends leaderboard state
+  const [friendsLeaderboard, setFriendsLeaderboard] = useState([]);
 
   const rosterLoadedRef = useRef(false);
   const resultsComputedRef = useRef(false);
@@ -332,9 +367,219 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       } else if (fallbackName) {
         setPlayerName(fallbackName);
       }
+      // Also fetch engagement stats
+      fetchEngagementStats(uid);
     } catch (e) {
       console.warn("Failed to fetch profile:", e);
       if (fallbackName) setPlayerName(fallbackName);
+    }
+  };
+
+  const RARITY_COLORS = {
+    common: "from-slate-500 to-slate-600 border-slate-400",
+    uncommon: "from-emerald-600 to-emerald-700 border-emerald-400",
+    rare: "from-blue-600 to-blue-700 border-blue-400",
+    epic: "from-purple-600 to-purple-700 border-purple-400",
+    legendary: "from-amber-500 to-orange-600 border-amber-400",
+  };
+
+  // Fetch engagement stats (Flashback Points, tier, streak, etc.)
+  const fetchEngagementStats = async (uid) => {
+    try {
+      const data = await rpc("ff_get_engagement_stats", { p_user_id: uid });
+      if (data && data.length > 0) {
+        setEngagementStats(data[0]);
+      } else if (data) {
+        setEngagementStats(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch engagement stats:", e);
+    }
+  };
+
+  // Fetch user badges
+  const fetchUserBadges = async (uid) => {
+    try {
+      const data = await rpc("ff_get_user_badges", { p_user_id: uid });
+      if (data && Array.isArray(data)) {
+        setUserBadges(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch user badges:", e);
+    }
+  };
+
+  // Fetch friends list
+  const fetchFriends = async (uid) => {
+    try {
+      const data = await rpc("ff_get_friends", { p_user_id: uid });
+      if (data && Array.isArray(data)) {
+        setFriendsList(data.filter(f => f.status === "accepted"));
+        setFriendRequests(data.filter(f => f.status === "pending" && f.friend_id === uid));
+      }
+    } catch (e) {
+      console.warn("Failed to fetch friends:", e);
+    }
+  };
+
+  // Fetch recent players
+  const fetchRecentPlayers = async (uid) => {
+    try {
+      const data = await rpc("ff_get_recent_players", { p_user_id: uid, p_limit: 10 });
+      if (data && Array.isArray(data)) {
+        setRecentPlayers(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch recent players:", e);
+    }
+  };
+
+  // Fetch skill rating
+  const fetchSkillRating = async (uid) => {
+    try {
+      const data = await rpc("ff_calculate_skill_rating", { p_user_id: uid });
+      if (data && data.length > 0) {
+        setSkillRating(data[0]);
+      } else if (data && typeof data.skill_score !== "undefined") {
+        setSkillRating(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch skill rating:", e);
+    }
+  };
+
+  // Fetch friends leaderboard
+  const fetchFriendsLeaderboard = async (uid) => {
+    try {
+      const data = await rpc("ff_get_friends_leaderboard", { p_user_id: uid, p_limit: 50 });
+      if (data && Array.isArray(data)) {
+        setFriendsLeaderboard(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch friends leaderboard:", e);
+    }
+  };
+
+  // Search for user by Flashback ID
+  const searchUserByFlashbackId = async (flashbackId) => {
+    setFriendSearchError("");
+    setFriendSearchResult(null);
+    if (!flashbackId || flashbackId.length < 6) {
+      setFriendSearchError("Enter a valid Flashback ID (e.g., FF-ABC1234)");
+      return;
+    }
+    try {
+      const data = await rpc("ff_search_user_by_flashback_id", { p_flashback_id: flashbackId.toUpperCase() });
+      if (data && data.length > 0) {
+        setFriendSearchResult(data[0]);
+      } else if (data && data.user_id) {
+        setFriendSearchResult(data);
+      } else {
+        setFriendSearchError("No user found with that Flashback ID");
+      }
+    } catch (e) {
+      console.warn("Failed to search user:", e);
+      setFriendSearchError("Failed to search. Please try again.");
+    }
+  };
+
+  // Send friend request
+  const sendFriendRequest = async (friendUserId) => {
+    try {
+      await rpc("ff_send_friend_request", { p_user_id: userId, p_friend_id: friendUserId });
+      setFriendSearchResult(null);
+      setFriendSearchId("");
+      fetchFriends(userId);
+    } catch (e) {
+      console.warn("Failed to send friend request:", e);
+    }
+  };
+
+  // Accept friend request
+  const acceptFriendRequest = async (friendUserId) => {
+    try {
+      await rpc("ff_accept_friend_request", { p_user_id: userId, p_friend_id: friendUserId });
+      fetchFriends(userId);
+    } catch (e) {
+      console.warn("Failed to accept friend request:", e);
+    }
+  };
+
+  // Challenge type icons
+  const CHALLENGE_ICONS = {
+    play_games: "🎮",
+    score_points: "🎯",
+    win_games: "🏆",
+    play_with_friends: "👥",
+    party_game: "🎉",
+  };
+
+  // Fetch daily challenge
+  const fetchDailyChallenge = async (uid) => {
+    try {
+      const data = await rpc("ff_assign_daily_challenge", { p_user_id: uid });
+      if (data && data.length > 0) {
+        setDailyChallenge({
+          ...data[0],
+          is_completed: data[0].current_value >= data[0].target_value,
+        });
+      } else if (data && data.challenge_id) {
+        setDailyChallenge({
+          ...data,
+          is_completed: data.current_value >= data.target_value,
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to fetch daily challenge:", e);
+    }
+  };
+
+  // Referral milestone thresholds
+  const REFERRAL_MILESTONES = [
+    { count: 3, bonus: 250, badge: "Recruiter" },
+    { count: 10, bonus: 500, badge: "Talent Scout" },
+    { count: 25, bonus: 1000, badge: "Head Hunter" },
+    { count: 50, bonus: 2500, badge: "Community Leader" },
+  ];
+
+  // Fetch referral stats
+  const fetchReferralStats = async (uid) => {
+    try {
+      const data = await rpc("ff_get_referral_stats", { p_user_id: uid });
+      if (data && data.length > 0) {
+        setReferralStats(data[0]);
+      } else if (data && data.referral_code) {
+        setReferralStats(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch referral stats:", e);
+    }
+  };
+
+  // Apply referral code
+  const applyReferralCode = async (code) => {
+    setReferralApplyResult(null);
+    if (!code || code.length < 4) {
+      setReferralApplyResult({ success: false, message: "Enter a valid referral code" });
+      return;
+    }
+    try {
+      const data = await rpc("ff_apply_referral_code", {
+        p_referee_id: userId,
+        p_referral_code: code.toUpperCase(),
+      });
+      if (data && data.length > 0) {
+        setReferralApplyResult(data[0]);
+      } else if (data) {
+        setReferralApplyResult(data);
+      }
+      if (data?.success) {
+        setReferralCodeInput("");
+        fetchReferralStats(userId);
+      }
+    } catch (e) {
+      console.warn("Failed to apply referral code:", e);
+      setReferralApplyResult({ success: false, message: "Failed to apply code. Please try again." });
     }
   };
 
@@ -349,6 +594,12 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         // Pass Google/Apple name as fallback - profile's display_name takes priority
         const fallbackName = session.user.user_metadata?.full_name || null;
         fetchProfile(session.user.id, fallbackName);
+        fetchUserBadges(session.user.id);
+        fetchFriends(session.user.id);
+        fetchRecentPlayers(session.user.id);
+        fetchDailyChallenge(session.user.id);
+        fetchReferralStats(session.user.id);
+        fetchSkillRating(session.user.id);
       }
     };
     checkAuth();
@@ -361,6 +612,12 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         setIsAnonymous(provider === "anonymous");
         const fallbackName = session.user.user_metadata?.full_name || null;
         fetchProfile(session.user.id, fallbackName);
+        fetchUserBadges(session.user.id);
+        fetchFriends(session.user.id);
+        fetchRecentPlayers(session.user.id);
+        fetchDailyChallenge(session.user.id);
+        fetchReferralStats(session.user.id);
+        fetchSkillRating(session.user.id);
       }
     });
 
@@ -733,6 +990,9 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     setRematchStatus({ ready: 0, total: 0 });
     setRematchPending(false);
 
+    // Reset engagement tracking for new game
+    setLastGameFpEarned(null);
+
     // Set new game info
     setGameId(newGameId);
     setRoomCode(newRoomCode);
@@ -988,6 +1248,110 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setScreen("draft");
     } catch (e) {
       flashNotice(`Start draft failed: ${safeMsg(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Start a solo practice game - skips lobby entirely
+  const startSoloGame = async () => {
+    if (busy) return;
+    if (!playerName.trim()) return;
+    if (!canDoAction("create")) return;
+
+    try {
+      setBusy(true);
+      flashNotice("");
+      const uid = await ensureAnonUser();
+      setUserId(uid);
+
+      // Pick a random week with data
+      const pick = await pickRandomWeekWithData(gameSettings.yearStart, gameSettings.yearEnd);
+      if (!pick) {
+        flashNotice("No data found for that year range.");
+        setBusy(false);
+        return;
+      }
+
+      const code = genRoomCode();
+      const settings = {
+        ...gameSettings,
+        maxPlayers: 1,
+        joinMode: "code",
+        snakeDraft: false,
+        gameMode: "solo",
+      };
+
+      // Create game and immediately start draft
+      const deadlineIso = new Date(Date.now() + (gameSettings.pickTime || 30) * 1000).toISOString();
+
+      const { data: game, error: gErr } = await supabase
+        .from("games")
+        .insert({
+          room_code: code,
+          status: "draft",
+          settings,
+          pick_number: 1,
+          season: pick.season,
+          week: clampWeek(pick.week),
+          turn_deadline_at: deadlineIso,
+        })
+        .select("*")
+        .single();
+      if (gErr) throw gErr;
+
+      // Add ourselves as the only player
+      const { error: pErr } = await supabase.from("game_players").insert({
+        game_id: game.id,
+        user_id: uid,
+        display_name: playerName.trim(),
+        seat: 1,
+        ready: true,
+        is_active: true,
+        last_seen: nowIso(),
+      });
+      if (pErr) throw pErr;
+
+      // Update turn_user_id
+      await supabase
+        .from("games")
+        .update({ turn_user_id: uid })
+        .eq("id", game.id);
+
+      // Set up local state for draft
+      setRoomCode(code);
+      setGameId(game.id);
+      setMySeat(1);
+      setPlayers([{ user_id: uid, display_name: playerName.trim(), seat: 1, is_active: true }]);
+
+      rosterLoadedRef.current = true;
+      resultsComputedRef.current = false;
+
+      setPinnedByPos({});
+      setDraftedPlayerIds(new Set());
+      setTeamsByUser({});
+
+      setPosFilter("ALL");
+      setTeamFilter("ALL");
+      setSearchQuery("");
+      setSearchLimit(25);
+
+      setWeeklyRoster(pick.roster || []);
+      setGameWeek({ season: game.season, week: clampWeek(game.week) });
+
+      setTurnUserId(uid);
+      setPickNumber(1);
+      setIsMyTurn(true);
+
+      const ms = toMs(deadlineIso);
+      setTurnDeadlineAtMs(ms);
+      setTimeRemaining(ms ? Math.max(0, Math.ceil((ms - Date.now()) / 1000)) : gameSettings.pickTime || 30);
+
+      setDraftView("SEARCH");
+      hapticSuccess();
+      setScreen("draft");
+    } catch (e) {
+      flashNotice(`Start solo game failed: ${safeMsg(e)}`);
     } finally {
       setBusy(false);
     }
@@ -1759,14 +2123,24 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             flashNotice(`FIRST HIGH SCORE! ${winner?.display_name || "Player"} set the record at ${hsData.high_score_value?.toFixed(1)}!`);
           }
         }
+
+        // Capture FP awarded for display
+        if (hsData?.fp_awarded && userId) {
+          const myFp = hsData.fp_awarded[userId];
+          if (myFp !== undefined) {
+            setLastGameFpEarned(myFp);
+          }
+        }
       } catch (saveErr) {
         console.warn("Failed to save game results:", saveErr);
       }
     }
 
-    // Refresh profile to show updated stats
+    // Refresh profile and engagement stats to show updated stats
     if (userId) {
       fetchProfile(userId);
+      fetchEngagementStats(userId);
+      fetchDailyChallenge(userId); // Refresh challenge progress
     }
   } catch (e) {
     flashNotice(`Scoring failed: ${safeMsg(e)}`);
@@ -2150,7 +2524,24 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       </div>
                       <div className="hidden sm:block text-left">
                         <div className="text-xs font-semibold truncate max-w-[80px]">{userProfile.display_name || "Player"}</div>
-                        <div className="text-[10px] text-slate-400">{userProfile.games_won}W • {userProfile.highest_score?.toFixed(1) || 0} best</div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                          {engagementStats && (
+                            <>
+                              <Zap className="w-3 h-3 text-amber-400" />
+                              <span className="text-amber-400">{(engagementStats.flashback_points || 0).toLocaleString()}</span>
+                              {engagementStats.current_streak > 0 && (
+                                <>
+                                  <span className="mx-0.5">•</span>
+                                  <Flame className="w-3 h-3 text-orange-400" />
+                                  <span className="text-orange-400">{engagementStats.current_streak}</span>
+                                </>
+                              )}
+                            </>
+                          )}
+                          {!engagementStats && (
+                            <span>{userProfile.games_won}W • {userProfile.highest_score?.toFixed(1) || 0} best</span>
+                          )}
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -2231,6 +2622,61 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       </div>
                     </div>
 
+                    {/* Engagement Stats Section */}
+                    {engagementStats && (
+                      <div className="bg-gradient-to-r from-amber-900/20 to-orange-900/20 border border-amber-500/20 rounded-lg p-3 mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-5 h-5 text-amber-400" />
+                            <span className="text-sm font-semibold text-amber-200">
+                              {(engagementStats.flashback_points || 0).toLocaleString()} FP
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs">
+                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 capitalize font-medium">
+                              {engagementStats.tier_name || "Rookie"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Tier Progress */}
+                        {engagementStats.tier !== "goat" && (
+                          <div className="mb-2">
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                              <span>Progress to {(engagementStats.next_tier || "").replace("_", " ")}</span>
+                              <span>{Math.round(engagementStats.tier_progress_percent || 0)}%</span>
+                            </div>
+                            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-amber-500 to-orange-500"
+                                style={{ width: `${Math.min(engagementStats.tier_progress_percent || 0, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Streak Info */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1">
+                            <Flame className={`w-4 h-4 ${engagementStats.current_streak > 0 ? "text-orange-400" : "text-slate-500"}`} />
+                            <span className={engagementStats.current_streak > 0 ? "text-orange-300" : "text-slate-500"}>
+                              {engagementStats.current_streak || 0} day streak
+                            </span>
+                          </div>
+                          {engagementStats.longest_streak > 0 && (
+                            <span className="text-slate-500">Best: {engagementStats.longest_streak}</span>
+                          )}
+                        </div>
+
+                        {/* Streak Multiplier Info */}
+                        {engagementStats.streak_multiplier > 1 && (
+                          <div className="mt-2 text-[10px] text-emerald-400 text-center">
+                            {engagementStats.streak_multiplier}x streak bonus active
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-3 gap-3 mb-4">
                       <div className="bg-slate-700/50 rounded-lg p-3 text-center">
                         <div className="text-xl font-bold text-emerald-400">{userProfile.games_won || 0}</div>
@@ -2244,6 +2690,170 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         <div className="text-xl font-bold text-purple-400">{userProfile.highest_score?.toFixed(1) || 0}</div>
                         <div className="text-[10px] text-slate-400 uppercase">Best</div>
                       </div>
+                    </div>
+
+                    {/* Game Type Stats */}
+                    {engagementStats && (engagementStats.multiplayer_games > 0 || engagementStats.solo_games > 0) && (
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="bg-slate-700/30 rounded-lg p-2 text-center">
+                          <div className="text-sm font-bold text-blue-300">{engagementStats.multiplayer_games || 0}</div>
+                          <div className="text-[10px] text-slate-400">Multiplayer</div>
+                        </div>
+                        <div className="bg-slate-700/30 rounded-lg p-2 text-center">
+                          <div className="text-sm font-bold text-slate-300">{engagementStats.solo_games || 0}</div>
+                          <div className="text-[10px] text-slate-400">Solo</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Skill Rating Section */}
+                    {skillRating && (() => {
+                      const sr = skillRating;
+                      const skillScore = Math.round(sr.skill_score || 0);
+                      const winRate = (sr.win_rate || 0);
+                      const avgMargin = sr.avg_margin || 0;
+                      const avgOpponents = sr.avg_opponents || 2;
+                      const gamesRated = sr.games_rated || 0;
+
+                      // Calculate individual component contributions
+                      const winRateContrib = (winRate * 0.40);
+                      const marginBonus = Math.max(0, Math.min(100, 50 + avgMargin));
+                      const marginContrib = (marginBonus * 0.30);
+                      const opponentBonus = avgOpponents >= 4 ? 90 : avgOpponents >= 3 ? 80 : avgOpponents >= 2.5 ? 75 : avgOpponents >= 2 ? 70 : 60;
+                      const opponentContrib = (opponentBonus * 0.30);
+
+                      // Skill rating color based on score
+                      const skillColor = skillScore >= 80 ? "text-amber-400" :
+                                        skillScore >= 60 ? "text-emerald-400" :
+                                        skillScore >= 40 ? "text-blue-400" : "text-slate-400";
+                      const skillBg = skillScore >= 80 ? "from-amber-900/30 to-yellow-900/30 border-amber-500/30" :
+                                     skillScore >= 60 ? "from-emerald-900/30 to-green-900/30 border-emerald-500/30" :
+                                     skillScore >= 40 ? "from-blue-900/30 to-cyan-900/30 border-blue-500/30" :
+                                     "from-slate-700/30 to-slate-800/30 border-slate-500/30";
+                      return (
+                        <div className={`relative group bg-gradient-to-r ${skillBg} border rounded-lg p-3 mb-4 cursor-help`}>
+                          {/* Hover tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-slate-900 border border-slate-600 rounded-lg p-3 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none shadow-xl">
+                            <div className="text-xs font-semibold text-slate-200 mb-2 text-center">Skill Rating Breakdown</div>
+                            <div className="space-y-2 text-[11px]">
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-400">Win Rate <span className="text-slate-500">(40%)</span></span>
+                                <span className="text-emerald-400 font-medium">+{winRateContrib.toFixed(1)} pts</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-500 -mt-1 pl-2">
+                                <span>{winRate.toFixed(1)}% wins</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-400">Margin Bonus <span className="text-slate-500">(30%)</span></span>
+                                <span className="text-blue-400 font-medium">+{marginContrib.toFixed(1)} pts</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-500 -mt-1 pl-2">
+                                <span>Avg {avgMargin >= 0 ? "+" : ""}{avgMargin.toFixed(1)} vs opponents</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-slate-400">Opponent Bonus <span className="text-slate-500">(30%)</span></span>
+                                <span className="text-purple-400 font-medium">+{opponentContrib.toFixed(1)} pts</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-500 -mt-1 pl-2">
+                                <span>Avg {avgOpponents.toFixed(1)} players/game</span>
+                              </div>
+                              <div className="border-t border-slate-700 pt-2 mt-2 flex justify-between items-center font-semibold">
+                                <span className="text-slate-300">Total Skill Score</span>
+                                <span className={skillColor}>{skillScore}</span>
+                              </div>
+                            </div>
+                            {/* Tooltip arrow */}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-600" />
+                          </div>
+
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className={`w-5 h-5 ${skillColor}`} />
+                              <span className="text-sm font-semibold text-slate-200">Skill Rating</span>
+                              <span className="text-[10px] text-slate-500">(hover for details)</span>
+                            </div>
+                            <div className={`text-2xl font-bold ${skillColor}`}>
+                              {skillScore}
+                            </div>
+                          </div>
+                          <div className="flex justify-between text-xs text-slate-400">
+                            <span>Win Rate: <span className="text-slate-200">{winRate.toFixed(1)}%</span></span>
+                            <span>Games Rated: <span className="text-slate-200">{gamesRated}</span></span>
+                          </div>
+                          {/* Skill bar visualization */}
+                          <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${skillScore >= 80 ? "bg-gradient-to-r from-amber-500 to-yellow-400" :
+                                                  skillScore >= 60 ? "bg-gradient-to-r from-emerald-500 to-green-400" :
+                                                  skillScore >= 40 ? "bg-gradient-to-r from-blue-500 to-cyan-400" :
+                                                  "bg-slate-500"}`}
+                              style={{ width: `${skillScore}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Flashback ID for friends */}
+                    {userProfile.flashback_id && (
+                      <div className="bg-slate-700/30 rounded-lg p-2 mb-4 text-center">
+                        <div className="text-[10px] text-slate-400 mb-1">Your Flashback ID</div>
+                        <div className="text-sm font-mono font-bold text-emerald-400">{userProfile.flashback_id}</div>
+                      </div>
+                    )}
+
+                    {/* User Badges */}
+                    {userBadges.length > 0 && (
+                      <div className="mb-4">
+                        <div className="text-xs font-semibold text-slate-300 mb-2">Badges Earned ({userBadges.length})</div>
+                        <div className="grid grid-cols-5 gap-2">
+                          {userBadges.slice(0, 10).map((badge) => (
+                            <div
+                              key={badge.badge_key}
+                              className={`relative group aspect-square rounded-lg bg-gradient-to-br ${RARITY_COLORS[badge.rarity] || RARITY_COLORS.common} border flex items-center justify-center cursor-pointer hover:scale-110 transition-transform`}
+                              title={`${badge.name}: ${badge.rarity}`}
+                            >
+                              <span className="text-xl">{badge.icon}</span>
+                              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                                <div className="font-semibold">{badge.name}</div>
+                                <div className="text-slate-400 capitalize">{badge.rarity}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {userBadges.length > 10 && (
+                          <div className="text-[10px] text-slate-500 text-center mt-2">
+                            +{userBadges.length - 10} more badges
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Friends & Referrals Buttons */}
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      <button
+                        onClick={() => {
+                          setShowSignIn(false);
+                          setShowFriendsModal(true);
+                        }}
+                        className="bg-blue-600 hover:bg-blue-500 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1"
+                      >
+                        <Users size={14} />
+                        Friends
+                        {friendRequests.length > 0 && (
+                          <span className="bg-red-500 text-white text-[10px] px-1 rounded-full">{friendRequests.length}</span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowSignIn(false);
+                          setShowReferralModal(true);
+                        }}
+                        className="bg-purple-600 hover:bg-purple-500 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1"
+                      >
+                        <Gift size={14} />
+                        Referrals
+                      </button>
                     </div>
 
                     <button
@@ -2311,6 +2921,563 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             </div>
           )}
 
+          {/* Friends Modal */}
+          {showFriendsModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[80vh] overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">Friends</h3>
+                  <button onClick={() => setShowFriendsModal(false)} className="text-slate-400 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex gap-1 mb-4 bg-slate-700/50 rounded-lg p-1">
+                  <button
+                    onClick={() => setFriendsTab("friends")}
+                    className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+                      friendsTab === "friends" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Friends
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFriendsTab("leaderboard");
+                      if (userId) {
+                        fetchFriendsLeaderboard(userId);
+                      }
+                    }}
+                    className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+                      friendsTab === "leaderboard" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Leaderboard
+                  </button>
+                  <button
+                    onClick={() => setFriendsTab("requests")}
+                    className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition relative ${
+                      friendsTab === "requests" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Requests
+                    {friendRequests.length > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                        {friendRequests.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setFriendsTab("add")}
+                    className={`flex-1 py-2 px-2 rounded-md text-xs font-medium transition ${
+                      friendsTab === "add" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Tab Content */}
+                <div className="flex-1 overflow-y-auto">
+                  {friendsTab === "friends" && (
+                    <div className="space-y-2">
+                      {friendsList.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400">
+                          <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>No friends yet</p>
+                          <p className="text-sm">Add friends to play together!</p>
+                        </div>
+                      ) : (
+                        friendsList.map((friend) => (
+                          <div key={friend.friend_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
+                            <div className="relative">
+                              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">
+                                {(friend.display_name || "?")[0].toUpperCase()}
+                              </div>
+                              {friend.is_online && (
+                                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-700" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold truncate">{friend.display_name}</div>
+                              <div className="text-xs text-slate-400 flex items-center gap-2">
+                                <span className="capitalize">{(friend.tier || "rookie").replace("_", " ")}</span>
+                                {friend.games_together > 0 && (
+                                  <span>• {friend.games_together} games together</span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                // TODO: Invite to game
+                                setShowFriendsModal(false);
+                              }}
+                              className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-xs font-medium"
+                            >
+                              Invite
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {friendsTab === "leaderboard" && (
+                    <div className="space-y-2">
+                      {friendsLeaderboard.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400">
+                          <Trophy className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>No leaderboard data</p>
+                          <p className="text-sm">Add friends to compare FP!</p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Leaderboard Header */}
+                          <div className="grid grid-cols-12 gap-2 px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase">
+                            <div className="col-span-1">#</div>
+                            <div className="col-span-5">Player</div>
+                            <div className="col-span-3 text-right">FP</div>
+                            <div className="col-span-3 text-right">Skill</div>
+                          </div>
+                          {friendsLeaderboard.map((entry) => (
+                            <div
+                              key={entry.user_id}
+                              className={`grid grid-cols-12 gap-2 items-center rounded-lg p-2 ${
+                                entry.is_current_user
+                                  ? "bg-gradient-to-r from-blue-900/40 to-blue-800/40 border border-blue-500/30"
+                                  : "bg-slate-700/30"
+                              }`}
+                            >
+                              {/* Rank */}
+                              <div className="col-span-1">
+                                <span className={`text-sm font-bold ${
+                                  entry.rank === 1 ? "text-amber-400" :
+                                  entry.rank === 2 ? "text-slate-300" :
+                                  entry.rank === 3 ? "text-orange-400" : "text-slate-400"
+                                }`}>
+                                  {entry.rank}
+                                </span>
+                              </div>
+
+                              {/* Player Info */}
+                              <div className="col-span-5 flex items-center gap-2 min-w-0">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  entry.is_current_user ? "bg-blue-600" : "bg-slate-600"
+                                }`}>
+                                  {(entry.display_name || "?")[0].toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className={`text-sm font-medium truncate ${entry.is_current_user ? "text-blue-200" : ""}`}>
+                                    {entry.is_current_user ? "You" : entry.display_name}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                    <span className="capitalize">{(entry.tier || "rookie").replace("_", " ")}</span>
+                                    {entry.current_streak > 0 && (
+                                      <span className="text-orange-400">🔥{entry.current_streak}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* FP */}
+                              <div className="col-span-3 text-right">
+                                <div className="text-sm font-bold text-amber-400">
+                                  {(entry.flashback_points || 0).toLocaleString()}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  {entry.win_rate?.toFixed(0) || 0}% win
+                                </div>
+                              </div>
+
+                              {/* Skill Score */}
+                              <div className="col-span-3 text-right">
+                                <div className={`text-sm font-bold ${
+                                  (entry.skill_score || 0) >= 80 ? "text-amber-400" :
+                                  (entry.skill_score || 0) >= 60 ? "text-emerald-400" :
+                                  (entry.skill_score || 0) >= 40 ? "text-blue-400" : "text-slate-400"
+                                }`}>
+                                  {Math.round(entry.skill_score || 0)}
+                                </div>
+                                {!entry.is_current_user && entry.games_together > 0 && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {entry.games_together} games
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {friendsTab === "requests" && (
+                    <div className="space-y-2">
+                      {friendRequests.length === 0 ? (
+                        <div className="text-center py-8 text-slate-400">
+                          <p>No pending requests</p>
+                        </div>
+                      ) : (
+                        friendRequests.map((request) => (
+                          <div key={request.user_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
+                            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold">
+                              {(request.display_name || "?")[0].toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold truncate">{request.display_name}</div>
+                              <div className="text-xs text-slate-400">
+                                {request.flashback_id}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => acceptFriendRequest(request.user_id)}
+                                className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-xs font-medium"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                className="bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs font-medium"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+
+                      {/* Recent Players Section */}
+                      {recentPlayers.length > 0 && (
+                        <>
+                          <div className="text-xs font-semibold text-slate-400 mt-4 mb-2">Recently Played With</div>
+                          {recentPlayers.filter(p => !p.is_friend).map((player) => (
+                            <div key={player.user_id} className="flex items-center gap-3 bg-slate-700/30 rounded-lg p-3">
+                              <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center font-bold">
+                                {(player.display_name || "?")[0].toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold truncate">{player.display_name}</div>
+                                <div className="text-xs text-slate-400">{player.flashback_id}</div>
+                              </div>
+                              <button
+                                onClick={() => sendFriendRequest(player.user_id)}
+                                className="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-xs font-medium"
+                              >
+                                Add
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {friendsTab === "add" && (
+                    <div>
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                          Add by Flashback ID
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={friendSearchId}
+                            onChange={(e) => setFriendSearchId(e.target.value.toUpperCase())}
+                            placeholder="FF-ABC1234"
+                            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          />
+                          <button
+                            onClick={() => searchUserByFlashbackId(friendSearchId)}
+                            className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-medium"
+                          >
+                            Search
+                          </button>
+                        </div>
+                        {friendSearchError && (
+                          <p className="text-red-400 text-xs mt-2">{friendSearchError}</p>
+                        )}
+                      </div>
+
+                      {/* Search Result */}
+                      {friendSearchResult && (
+                        <div className="bg-slate-700/50 rounded-lg p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-xl font-bold">
+                              {(friendSearchResult.display_name || "?")[0].toUpperCase()}
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-semibold">{friendSearchResult.display_name}</div>
+                              <div className="text-xs text-slate-400">
+                                {friendSearchResult.flashback_id} • {(friendSearchResult.tier || "rookie").replace("_", " ")}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => sendFriendRequest(friendSearchResult.user_id)}
+                            className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-sm font-medium"
+                          >
+                            Send Friend Request
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Your Flashback ID */}
+                      <div className="mt-6 bg-slate-700/30 rounded-lg p-4 text-center">
+                        <div className="text-xs text-slate-400 mb-1">Share your Flashback ID</div>
+                        <div className="text-lg font-mono font-bold text-emerald-400">
+                          {userProfile?.flashback_id || "Sign in to get ID"}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const id = userProfile?.flashback_id || "";
+                            if (id) {
+                              navigator.clipboard?.writeText(id);
+                            }
+                          }}
+                          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          Tap to copy
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Referral Modal */}
+          {showReferralModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[80vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Gift className="w-5 h-5 text-purple-400" />
+                    Referrals
+                  </h3>
+                  <button onClick={() => setShowReferralModal(false)} className="text-slate-400 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {(() => {
+                  const stats = referralStats;
+                  const code = stats?.referral_code || userProfile?.referral_code || null;
+
+                  return (
+                    <>
+                      {/* Your Referral Code */}
+                      <div className="bg-gradient-to-r from-purple-900/30 to-indigo-900/30 border border-purple-500/30 rounded-xl p-4 mb-4">
+                        <div className="text-center">
+                          <div className="text-xs text-purple-300 font-semibold mb-1">YOUR REFERRAL CODE</div>
+                          <div className="text-2xl font-mono font-bold text-purple-300 mb-2">
+                            {code || "Sign in to get code"}
+                          </div>
+                          {code && (
+                            <div className="flex gap-2 justify-center">
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(code);
+                                }}
+                                className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                              >
+                                <Copy size={14} />
+                                Copy Code
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const text = `Join me on Fantasy Flashback! Use my referral code ${code} to get bonus rewards. https://fantasyflashbacks.com`;
+                                  if (navigator.share) {
+                                    navigator.share({ text });
+                                  } else {
+                                    navigator.clipboard?.writeText(text);
+                                  }
+                                }}
+                                className="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                              >
+                                <Share2 size={14} />
+                                Share
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400 text-center mt-3">
+                          You get <span className="text-amber-400 font-semibold">+100 FP</span> for each friend who joins!
+                        </div>
+                      </div>
+
+                      {/* Referral Stats */}
+                      {stats && (
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+                            <div className="text-xl font-bold text-emerald-400">{stats.completed_referrals || 0}</div>
+                            <div className="text-[10px] text-slate-400">Completed</div>
+                          </div>
+                          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+                            <div className="text-xl font-bold text-amber-400">{stats.pending_referrals || 0}</div>
+                            <div className="text-[10px] text-slate-400">Pending</div>
+                          </div>
+                          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+                            <div className="text-xl font-bold text-purple-400">{(stats.total_fp_earned || 0).toLocaleString()}</div>
+                            <div className="text-[10px] text-slate-400">FP Earned</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Milestone Progress */}
+                      {stats && stats.next_milestone && (
+                        <div className="bg-slate-700/30 rounded-lg p-3 mb-4">
+                          <div className="flex justify-between text-xs text-slate-400 mb-1">
+                            <span>Next milestone: {stats.next_milestone} referrals</span>
+                            <span>{stats.completed_referrals || 0} / {stats.next_milestone}</span>
+                          </div>
+                          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-purple-500 to-indigo-500"
+                              style={{ width: `${((stats.completed_referrals || 0) / stats.next_milestone) * 100}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {stats.referrals_to_next_milestone} more for milestone bonus!
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Milestone Rewards */}
+                      <div className="mb-4">
+                        <div className="text-xs font-semibold text-slate-300 mb-2">Milestone Rewards</div>
+                        <div className="space-y-2">
+                          {REFERRAL_MILESTONES.map((m) => {
+                            const isAchieved = (stats?.completed_referrals || 0) >= m.count;
+                            return (
+                              <div
+                                key={m.count}
+                                className={`flex items-center justify-between p-2 rounded-lg ${
+                                  isAchieved ? "bg-emerald-900/30 border border-emerald-500/30" : "bg-slate-700/30"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">{isAchieved ? "✅" : "🎯"}</span>
+                                  <div>
+                                    <div className="text-sm font-medium">{m.badge}</div>
+                                    <div className="text-xs text-slate-400">{m.count} referrals</div>
+                                  </div>
+                                </div>
+                                <div className={`text-sm font-bold ${isAchieved ? "text-emerald-400" : "text-amber-400"}`}>
+                                  +{m.bonus} FP
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Enter Referral Code */}
+                      <div className="border-t border-slate-700 pt-4">
+                        <div className="text-xs font-semibold text-slate-300 mb-2">Have a referral code?</div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={referralCodeInput}
+                            onChange={(e) => setReferralCodeInput(e.target.value.toUpperCase())}
+                            placeholder="Enter code"
+                            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                          />
+                          <button
+                            onClick={() => applyReferralCode(referralCodeInput)}
+                            className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        {referralApplyResult && (
+                          <div className={`mt-2 text-xs p-2 rounded ${
+                            referralApplyResult.success
+                              ? "bg-emerald-900/30 text-emerald-400"
+                              : "bg-red-900/30 text-red-400"
+                          }`}>
+                            {referralApplyResult.message}
+                            {referralApplyResult.referrer_name && (
+                              <span> Referred by: <strong>{referralApplyResult.referrer_name}</strong></span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Daily Challenge Card */}
+          {dailyChallenge && (
+            (() => {
+              const challenge = dailyChallenge;
+              const progress = Math.min((challenge.current_value / challenge.target_value) * 100, 100);
+              const isComplete = challenge.current_value >= challenge.target_value;
+              const expiresAt = new Date(challenge.expires_at);
+              const now = new Date();
+              const hoursLeft = Math.max(0, Math.floor((expiresAt - now) / (1000 * 60 * 60)));
+              const minsLeft = Math.max(0, Math.floor(((expiresAt - now) % (1000 * 60 * 60)) / (1000 * 60)));
+
+              return (
+                <div className={`mb-6 rounded-xl border p-4 ${
+                  isComplete
+                    ? "bg-gradient-to-r from-emerald-900/30 to-green-900/30 border-emerald-500/30"
+                    : "bg-gradient-to-r from-indigo-900/30 to-purple-900/30 border-indigo-500/30"
+                }`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${
+                        isComplete ? "bg-emerald-500/20" : "bg-indigo-500/20"
+                      }`}>
+                        {isComplete ? "✅" : (CHALLENGE_ICONS[challenge.challenge_type] || "🎯")}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Daily Challenge</span>
+                          {!isComplete && hoursLeft < 24 && (
+                            <span className="text-xs text-slate-400">
+                              {hoursLeft}h {minsLeft}m left
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-bold text-lg">{challenge.challenge_name}</div>
+                        <div className="text-sm text-slate-400">{challenge.challenge_description}</div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`text-xl font-bold ${isComplete ? "text-emerald-400" : "text-amber-400"}`}>
+                        +{challenge.fp_reward} FP
+                      </div>
+                      {isComplete && (
+                        <div className="text-xs text-emerald-400 font-semibold">COMPLETE!</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  {!isComplete && challenge.target_value > 1 && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>Progress</span>
+                        <span>{challenge.current_value} / {challenge.target_value}</span>
+                      </div>
+                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          )}
+
           {notice ? (
             <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-900/15 px-4 py-3 text-sm text-amber-100">
               {notice}
@@ -2321,33 +3488,69 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
             <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-6">
               <h2 className="text-xl font-bold mb-4">Game Settings</h2>
 
-              <label className="block text-sm font-semibold mb-2">Lobby Type</label>
+              <label className="block text-sm font-semibold mb-2">Game Mode</label>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <button
-                  onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "fixed", maxPlayers: 2 }))}
+                  onClick={() => setGameSettings((p) => ({ ...p, gameMode: "multiplayer", lobbyMode: "fixed", maxPlayers: 2 }))}
                   className={`p-3 rounded-lg text-sm font-medium transition ${
-                    gameSettings.lobbyMode === "fixed"
-                      ? "bg-blue-600 text-white"
+                    gameSettings.gameMode !== "solo"
+                      ? "bg-emerald-600 text-white"
                       : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   }`}
                 >
-                  Fixed Size
-                  <div className="text-xs opacity-70 mt-1">Wait for exact count</div>
+                  <div className="flex items-center justify-center gap-2">
+                    <Users size={18} />
+                    Multiplayer
+                  </div>
+                  <div className="text-xs opacity-70 mt-1">Play with friends (2-3x FP)</div>
                 </button>
                 <button
-                  onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "open", maxPlayers: 8 }))}
+                  onClick={() => setGameSettings((p) => ({ ...p, gameMode: "solo", maxPlayers: 1 }))}
                   className={`p-3 rounded-lg text-sm font-medium transition ${
-                    gameSettings.lobbyMode === "open"
-                      ? "bg-blue-600 text-white"
+                    gameSettings.gameMode === "solo"
+                      ? "bg-purple-600 text-white"
                       : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                   }`}
                 >
-                  Open Lobby
-                  <div className="text-xs opacity-70 mt-1">Start with 2-8 players</div>
+                  <div className="flex items-center justify-center gap-2">
+                    <Star size={18} />
+                    Solo Practice
+                  </div>
+                  <div className="text-xs opacity-70 mt-1">Draft alone, see optimal lineup</div>
                 </button>
               </div>
 
-              {gameSettings.lobbyMode === "fixed" && (
+              {gameSettings.gameMode !== "solo" && (
+                <>
+                  <label className="block text-sm font-semibold mb-2">Lobby Type</label>
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <button
+                      onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "fixed", maxPlayers: 2 }))}
+                      className={`p-3 rounded-lg text-sm font-medium transition ${
+                        gameSettings.lobbyMode === "fixed"
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      }`}
+                    >
+                      Fixed Size
+                      <div className="text-xs opacity-70 mt-1">Wait for exact count</div>
+                    </button>
+                    <button
+                      onClick={() => setGameSettings((p) => ({ ...p, lobbyMode: "open", maxPlayers: 8 }))}
+                      className={`p-3 rounded-lg text-sm font-medium transition ${
+                        gameSettings.lobbyMode === "open"
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      }`}
+                    >
+                      Open Lobby
+                      <div className="text-xs opacity-70 mt-1">Start with 2-8 players</div>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {gameSettings.gameMode !== "solo" && gameSettings.lobbyMode === "fixed" && (
                 <>
                   <label className="block text-sm font-semibold mb-2">Player Count</label>
                   <div className="grid grid-cols-3 gap-3 mb-4">
@@ -2369,22 +3572,24 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 {rosterControl("dstSlots", "DST")}
               </div>
 
-              <div className="mt-3 flex items-center justify-between bg-slate-900/40 border border-slate-700 rounded-xl px-3 py-2">
-                 <div className="text-sm font-semibold text-slate-200">Snake draft</div>
-                 
+              {gameSettings.gameMode !== "solo" && (
+                <div className="mt-3 flex items-center justify-between bg-slate-900/40 border border-slate-700 rounded-xl px-3 py-2">
+                  <div className="text-sm font-semibold text-slate-200">Snake draft</div>
+
                   {snakeAllowed ? (
-                     <label className="flex items-center gap-2 text-xs text-slate-300">
-                        <input
-                         type="checkbox"
-                         checked={snakeChecked}
-                         onChange={(e) => setGameSettings((p) => ({ ...p, snakeDraft: e.target.checked }))}
-                         />
-                         {snakeChecked ? "On" : "Off"} (3+ players)
-                        </label>
-                    ) : (
-                        <div className="text-xs text-slate-400">Off for 2 players</div>
-                    )}
+                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={snakeChecked}
+                        onChange={(e) => setGameSettings((p) => ({ ...p, snakeDraft: e.target.checked }))}
+                      />
+                      {snakeChecked ? "On" : "Off"} (3+ players)
+                    </label>
+                  ) : (
+                    <div className="text-xs text-slate-400">Off for 2 players</div>
+                  )}
                 </div>
+              )}
 
               <div className="text-xs text-slate-400 mt-2">
                 Total roster size: <span className="font-semibold">{rosterSize}</span>
@@ -2479,78 +3684,104 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                 className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-400 mb-4"
               />
 
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <button
-                  onClick={() => setGameSettings((p) => ({ ...p, joinMode: "code" }))}
-                  className={`py-3 rounded font-bold transition ${
-                    gameSettings.joinMode === "code" ? "bg-blue-600 text-white" : "bg-slate-700/70 text-slate-200 hover:bg-slate-600"
-                  }`}
-                >
-                  Code / Private
-                </button>
-                <button
-                  onClick={() => setGameSettings((p) => ({ ...p, joinMode: "global" }))}
-                  className={`py-3 rounded font-bold transition ${
-                    gameSettings.joinMode === "global" ? "bg-blue-600 text-white" : "bg-slate-700/70 text-slate-200 hover:bg-slate-600"
-                  }`}
-                >
-                  Global Match
-                </button>
-              </div>
-
-              {gameSettings.joinMode === "code" ? (
+              {gameSettings.gameMode === "solo" ? (
+                /* Solo Mode - Start immediately */
                 <div className="space-y-3">
                   <button
-                    onClick={createRoom}
+                    onClick={startSoloGame}
                     disabled={busy || !playerName.trim()}
-                    className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
+                    className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 disabled:from-slate-700 disabled:to-slate-700 py-4 rounded-lg font-bold transition text-lg"
                   >
-                    {busy ? "Creating…" : `Create Room (${effectiveMaxPlayers} Players)`}
+                    {busy ? "Starting…" : "Start Solo Draft"}
                   </button>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      placeholder="Room Code"
-                      value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                      className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-400 uppercase"
-                    />
-                    <button
-                      onClick={() => joinRoom().catch(() => {})}
-                      disabled={busy || !playerName.trim() || roomCode.trim().length < 4}
-                      className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
-                    >
-                      {busy ? "Joining…" : "Join Room"}
-                    </button>
+                  <div className="mt-4 bg-slate-900/40 border border-slate-700 rounded-xl p-4 text-xs text-slate-300">
+                    <div className="font-semibold text-purple-300 mb-2">Solo Practice Mode</div>
+                    <ul className="space-y-1 list-disc list-inside">
+                      <li>Draft your full lineup at your own pace</li>
+                      <li>See your score and compare to the optimal lineup</li>
+                      <li>Earn 10 FP base + bonus if you beat 80% of optimal</li>
+                      <li>No multiplayer bonuses apply</li>
+                    </ul>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <button
-                    onClick={() => startGlobalMatchmaking().catch(() => {})}
-                    disabled={busy || !playerName.trim()}
-                    className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
-                  >
-                    {busy ? "Searching…" : `Find Match (${effectiveMaxPlayers}p)`}
-                  </button>
+                /* Multiplayer Mode */
+                <>
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <button
+                      onClick={() => setGameSettings((p) => ({ ...p, joinMode: "code" }))}
+                      className={`py-3 rounded font-bold transition ${
+                        gameSettings.joinMode === "code" ? "bg-blue-600 text-white" : "bg-slate-700/70 text-slate-200 hover:bg-slate-600"
+                      }`}
+                    >
+                      Code / Private
+                    </button>
+                    <button
+                      onClick={() => setGameSettings((p) => ({ ...p, joinMode: "global" }))}
+                      className={`py-3 rounded font-bold transition ${
+                        gameSettings.joinMode === "global" ? "bg-blue-600 text-white" : "bg-slate-700/70 text-slate-200 hover:bg-slate-600"
+                      }`}
+                    >
+                      Global Match
+                    </button>
+                  </div>
 
-                  {matchmakingStatus ? <div className="text-xs text-slate-300">{matchmakingStatus}</div> : null}
+                  {gameSettings.joinMode === "code" ? (
+                    <div className="space-y-3">
+                      <button
+                        onClick={createRoom}
+                        disabled={busy || !playerName.trim()}
+                        className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
+                      >
+                        {busy ? "Creating…" : `Create Room (${effectiveMaxPlayers} Players)`}
+                      </button>
 
-                  <label className="flex items-center gap-2 text-xs text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={!!gameSettings.autoStartWhenFull}
-                      onChange={(e) => setGameSettings((p) => ({ ...p, autoStartWhenFull: e.target.checked }))}
-                    />
-                    Auto-start when lobby is full
-                  </label>
-                </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          placeholder="Room Code"
+                          value={roomCode}
+                          onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                          className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-400 uppercase"
+                        />
+                        <button
+                          onClick={() => joinRoom().catch(() => {})}
+                          disabled={busy || !playerName.trim() || roomCode.trim().length < 4}
+                          className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
+                        >
+                          {busy ? "Joining…" : "Join Room"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => startGlobalMatchmaking().catch(() => {})}
+                        disabled={busy || !playerName.trim()}
+                        className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-slate-700 disabled:to-slate-700 py-3 rounded-lg font-bold transition"
+                      >
+                        {busy ? "Searching…" : `Find Match (${effectiveMaxPlayers}p)`}
+                      </button>
+
+                      {matchmakingStatus ? <div className="text-xs text-slate-300">{matchmakingStatus}</div> : null}
+
+                      <label className="flex items-center gap-2 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={!!gameSettings.autoStartWhenFull}
+                          onChange={(e) => setGameSettings((p) => ({ ...p, autoStartWhenFull: e.target.checked }))}
+                        />
+                        Auto-start when lobby is full
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="mt-4 bg-slate-900/40 border border-slate-700 rounded-xl p-4 text-xs text-slate-300">
+                    Draft order randomizes at start. For 2 players, the draft alternates. For 3+ players, snake draft is optional.
+                  </div>
+                </>
               )}
-
-              <div className="mt-4 bg-slate-900/40 border border-slate-700 rounded-xl p-4 text-xs text-slate-300">
-                Draft order randomizes at start. For 2 players, the draft alternates. For 3+ players, snake draft is optional.
-              </div>
             </div>
           </div>
         </div>
@@ -2980,6 +4211,8 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
   }
 
   if (screen === "results") {
+    const isSoloGame = gameSettings.gameMode === "solo" || players.length === 1;
+
     const scoreboard = Object.entries(resultsByUser || {})
       .map(([uid, v]) => ({
         user_id: uid,
@@ -2991,6 +4224,25 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
 
     const top = scoreboard.length ? scoreboard[0].total : 0;
     const winners = scoreboard.filter((x) => Math.abs(x.total - top) < 1e-9);
+
+    // Solo mode stats (computed directly, not with useMemo, since we're inside a conditional)
+    const myResults = resultsByUser?.[userId] || { rows: [], total: 0 };
+    const soloStats = (() => {
+      if (!isSoloGame) return null;
+      const rows = myResults.rows || [];
+      let top10Count = 0;
+      let top1Count = 0;
+      const playerDetails = rows.map((player) => {
+        const rk = weeklyRankInfoById?.[player.id] || null;
+        const rank = rk?.rank || 999;
+        const isTop10 = rank <= 10;
+        const isTop1 = rank === 1;
+        if (isTop10) top10Count++;
+        if (isTop1) top1Count++;
+        return { ...player, rank, isTop10, isTop1, rankInfo: rk };
+      });
+      return { top10Count, top1Count, total: rows.length, playerDetails };
+    })();
 
     const headerText =
       winners.length === 0 ? "Results" : winners.length === 1 ? `Winner: ${winners[0].name}` : `Tie: ${winners.map((w) => w.name).join(", ")}`;
@@ -3078,7 +4330,320 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
               <h2 className="text-2xl font-bold mb-2">Calculating Scores…</h2>
             </div>
+          ) : isSoloGame && soloStats ? (
+            /* ==================== SOLO MODE RESULTS ==================== */
+            <>
+              <div className="text-center mb-6">
+                <div className="text-6xl mb-4">🎯</div>
+                <h1 className="text-3xl md:text-4xl font-bold mb-2">Solo Draft Complete!</h1>
+                {gameWeek && (
+                  <p className="text-slate-400">
+                    Week {gameWeek.week}, {gameWeek.season} • {gameSettings.scoring === "half-ppr" ? "Half PPR" : gameSettings.scoring.toUpperCase()}
+                  </p>
+                )}
+              </div>
+
+              {/* Top 10 Summary Card */}
+              <div className="bg-gradient-to-r from-purple-900/40 to-indigo-900/40 border border-purple-500/30 rounded-xl p-6 mb-6">
+                <div className="text-center">
+                  <div className="text-5xl font-bold text-purple-300 mb-2">
+                    {soloStats.top10Count} / {soloStats.total}
+                  </div>
+                  <div className="text-lg text-purple-200 font-semibold">Players in Top 10 at Position</div>
+                  {soloStats.top1Count > 0 && (
+                    <div className="mt-3 inline-flex items-center gap-2 bg-yellow-500/20 border border-yellow-500/40 rounded-full px-4 py-2">
+                      <span className="text-2xl">👑</span>
+                      <span className="text-yellow-300 font-bold">
+                        {soloStats.top1Count} #1 Overall Pick{soloStats.top1Count > 1 ? "s" : ""}!
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Your Picks with Rankings */}
+              <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                <h3 className="text-xl font-bold mb-4">Your Picks</h3>
+                <div className="space-y-2">
+                  {soloStats.playerDetails.map((player, i) => {
+                    const keyStats = getKeyStats(player);
+                    return (
+                      <details key={i} className={`rounded p-3 ${
+                        player.isTop1 ? "bg-yellow-900/30 border border-yellow-500/50" :
+                        player.isTop10 ? "bg-emerald-900/30 border border-emerald-500/30" :
+                        "bg-slate-700"
+                      }`}>
+                        <summary className="flex items-center justify-between cursor-pointer">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {player.isTop1 && <span className="text-lg">👑</span>}
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${POSITION_COLORS[player.position]?.text || "text-white"} bg-slate-600`}>
+                              {player.position}
+                            </span>
+                            <TeamColorBadge team={player.team} />
+                            <span className="font-medium">{player.name}</span>
+                            <MatchupLine matchup={player.matchup} />
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-sm font-bold px-2 py-1 rounded ${
+                              player.isTop1 ? "bg-yellow-500 text-yellow-900" :
+                              player.isTop10 ? "bg-emerald-500/80 text-white" :
+                              "bg-slate-600 text-slate-300"
+                            }`}>
+                              #{player.rank} {player.rankInfo?.pos || player.position}
+                            </span>
+                            <span className="font-bold text-slate-200">{(player.points ?? 0).toFixed(1)} pts</span>
+                          </div>
+                        </summary>
+
+                        <div className="mt-3 pt-3 border-t border-slate-600">
+                          <div className="text-xs text-slate-300 mb-2 font-semibold">Key stats</div>
+                          <div className="grid grid-cols-2 gap-2 text-sm text-slate-200">
+                            {keyStats.map((kv) => (
+                              <div key={kv.label} className="flex justify-between bg-slate-900/30 rounded px-2 py-1">
+                                <span className="text-slate-400">{kv.label}</span>
+                                <span className="font-medium">{kv.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-slate-600 flex justify-between items-center">
+                  <span className="text-slate-400">Total Score</span>
+                  <span className="text-2xl font-bold text-emerald-300">{Number(myResults.total || 0).toFixed(1)} pts</span>
+                </div>
+              </div>
+
+              <div className="flex justify-center gap-3 mb-6">
+                <button
+                  onClick={handleShareResults}
+                  className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded-lg font-bold transition flex items-center gap-2"
+                >
+                  <Share2 size={18} />
+                  {shareCopied ? "Copied" : "Share Results"}
+                </button>
+              </div>
+
+              {/* Solo FP Earned Card */}
+              {(() => {
+                const baseFp = 10;
+                const optimalPercent = globalBestLineup?.total > 0
+                  ? (Number(myResults.total || 0) / globalBestLineup.total) * 100
+                  : 0;
+                const winBonus = optimalPercent >= 80 ? 5 : 0;
+                const streakMult = engagementStats?.streak_multiplier || 1;
+                const actualFp = lastGameFpEarned;
+                const estimatedFp = Math.round((baseFp + winBonus) * streakMult);
+                const displayFp = actualFp !== null ? actualFp : null;
+
+                if (displayFp === null && !engagementStats) return null;
+
+                return (
+                  <div className="bg-gradient-to-r from-purple-900/30 to-indigo-900/30 border border-purple-500/30 rounded-xl p-4 mb-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                          <Zap className="w-5 h-5 text-purple-400" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-purple-200">Solo Practice FP</div>
+                          {engagementStats && (
+                            <div className="text-xs text-slate-400">
+                              <span className="capitalize">{engagementStats.tier_name || "Rookie"}</span>
+                              {(engagementStats.current_streak || 0) > 0 && (
+                                <span className="text-orange-400 ml-2">
+                                  🔥 {engagementStats.current_streak} day streak
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {displayFp !== null && (
+                          <div className="text-2xl font-bold text-purple-300">+{displayFp} FP</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Solo FP Breakdown */}
+                    <div className="bg-slate-800/50 rounded-lg p-2 text-sm">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-400">Base (Solo)</span>
+                        <span className="text-slate-300">+{baseFp}</span>
+                      </div>
+                      {winBonus > 0 && (
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-400">Beat 80% Optimal</span>
+                          <span className="text-emerald-400">+{winBonus}</span>
+                        </div>
+                      )}
+                      {streakMult > 1 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400">Streak Bonus</span>
+                          <span className="text-orange-400">×{streakMult}</span>
+                        </div>
+                      )}
+                      {optimalPercent < 80 && globalBestLineup && (
+                        <div className="text-[10px] text-slate-500 mt-1 text-center">
+                          Beat 80% of optimal ({Math.round(globalBestLineup.total * 0.8)} pts) for +5 bonus FP!
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tier Progress */}
+                    {engagementStats && engagementStats.tier !== "goat" && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                          <span className="capitalize">{engagementStats.tier_name}</span>
+                          <span>{(engagementStats.flashback_points || 0).toLocaleString()} FP total</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-purple-500 to-indigo-500"
+                            style={{ width: `${Math.min(engagementStats.tier_progress_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Global Best Lineup for Solo */}
+              {globalBestLineup && (
+                <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-200">Optimal Lineup This Week</div>
+                      <div className="text-xs text-slate-400">The best possible draft you could have made</div>
+                    </div>
+                    <div className="text-3xl font-bold text-emerald-300">{globalBestLineup.total.toFixed(1)} pts</div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {globalBestLineup.slots.map((s, idx) => (
+                      <div key={idx} className="bg-slate-700 rounded p-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-xs font-bold px-2 py-1 rounded ${POSITION_COLORS[s.slot]?.text || "text-white"} bg-slate-600`}>
+                            {s.slot}
+                          </span>
+                          <TeamColorBadge team={s.player.team} />
+                          <span className="text-sm font-medium truncate">{s.player.name}</span>
+                        </div>
+                        <div className="text-sm font-bold text-emerald-200">{(s.player.points ?? 0).toFixed(1)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Comparison to your score */}
+                  {globalBestLineup.total > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-600 text-center">
+                      <div className="text-sm text-slate-400">
+                        You scored <span className="font-bold text-white">{((Number(myResults.total || 0) / globalBestLineup.total) * 100).toFixed(0)}%</span> of the optimal lineup
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Solo Action Buttons */}
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      rosterLoadedRef.current = false;
+                      resultsComputedRef.current = false;
+                      autoPickInFlightRef.current = false;
+                      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+
+                      setGameId(null);
+                      setMySeat(null);
+                      setPlayers([]);
+                      setWeeklyRoster([]);
+                      setDraftedPlayerIds(new Set());
+                      setPinnedByPos({});
+                      setTeamsByUser({});
+                      setResultsByUser({});
+                      setWeeklyRankInfoById({});
+                      setGlobalBestLineup(null);
+                      setGameWeek(null);
+                      setPosFilter("ALL");
+                      setTeamFilter("ALL");
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setTurnDeadlineAtMs(null);
+                      setTimeRemaining(gameSettings.pickTime || 30);
+                      setDraftBusy(false);
+                      setMatchmakingStatus("");
+                      setDraftView("SEARCH");
+                      setInviteRoom(null);
+                      inviteAutoJoinRef.current = false;
+                      setRematchRequested(false);
+                      setRematchStatus({ ready: 0, total: 0 });
+                      setLastGameFpEarned(null);
+                      flashNotice("");
+
+                      // Start another solo game
+                      setTimeout(() => {
+                        startSoloGame().catch?.(() => {});
+                      }, 0);
+                    }}
+                    disabled={busy || !playerName.trim()}
+                    className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 disabled:opacity-50 px-6 py-3 rounded-lg font-bold transition"
+                  >
+                    Play Again (Solo)
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      markLeft();
+
+                      rosterLoadedRef.current = false;
+                      resultsComputedRef.current = false;
+                      autoPickInFlightRef.current = false;
+                      lastAutoPickTryRef.current = { gameId: null, pickNumber: null };
+
+                      setScreen("setup");
+                      setGameId(null);
+                      setMySeat(null);
+                      setPlayers([]);
+                      setWeeklyRoster([]);
+                      setDraftedPlayerIds(new Set());
+                      setPinnedByPos({});
+                      setTeamsByUser({});
+                      setResultsByUser({});
+                      setWeeklyRankInfoById({});
+                      setGlobalBestLineup(null);
+                      setGameWeek(null);
+                      setPosFilter("ALL");
+                      setTeamFilter("ALL");
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setTurnDeadlineAtMs(null);
+                      setTimeRemaining(gameSettings.pickTime || 30);
+                      setDraftBusy(false);
+                      setMatchmakingStatus("");
+                      setDraftView("SEARCH");
+                      setInviteRoom(null);
+                      inviteAutoJoinRef.current = false;
+                      setRematchRequested(false);
+                      setRematchStatus({ ready: 0, total: 0 });
+                      setLastGameFpEarned(null);
+                      flashNotice("");
+                    }}
+                    className="bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-lg font-bold transition"
+                  >
+                    Back to Menu
+                  </button>
+                </div>
+              </div>
+            </>
           ) : (
+            /* ==================== MULTIPLAYER RESULTS ==================== */
             <>
               <div className="text-center mb-6">
                 <Trophy size={64} className="mx-auto mb-4 text-yellow-400" />
@@ -3099,6 +4664,114 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   {shareCopied ? "Copied" : "Share Results"}
                 </button>
               </div>
+
+              {/* Flashback Points Earned Card */}
+              {(() => {
+                // Calculate FP breakdown for display
+                const playerCount = players.length;
+                const isWinner = winners.some(w => w.user_id === userId);
+                const streakMult = engagementStats?.streak_multiplier || 1;
+
+                // Determine multipliers based on game type
+                const isSolo = isSoloGame;
+                const baseFp = isSolo ? 10 : (playerCount >= 3 ? 40 : 25);
+                const winBonus = isWinner ? (isSolo ? 5 : (playerCount >= 3 ? 25 : 15)) : 0;
+                const partyMult = isSolo ? 1 : (playerCount >= 7 ? 3 : playerCount >= 5 ? 2.5 : playerCount >= 3 ? 2 : 1.5);
+
+                // Use actual FP if available
+                const actualFp = lastGameFpEarned;
+                const displayFp = actualFp !== null ? actualFp : null;
+
+                // Only show if we have FP data or engagement stats
+                if (displayFp === null && !engagementStats) return null;
+
+                return (
+                  <div className="bg-gradient-to-r from-amber-900/30 to-orange-900/30 border border-amber-500/30 rounded-xl p-4 mb-6">
+                    {/* Header with total FP earned */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center">
+                          <Zap className="w-6 h-6 text-amber-400" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-amber-200">Flashback Points Earned</div>
+                          {engagementStats && (
+                            <div className="text-xs text-slate-400 flex items-center gap-2">
+                              <span className="capitalize">{engagementStats.tier_name || "Rookie"}</span>
+                              {(engagementStats.current_streak || 0) > 0 && (
+                                <span className="flex items-center gap-1 text-orange-400">
+                                  <Flame className="w-3 h-3" />
+                                  {engagementStats.current_streak} day streak
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {displayFp !== null && (
+                          <div className="text-3xl font-bold text-amber-400">+{displayFp} FP</div>
+                        )}
+                        {engagementStats && (
+                          <div className="text-xs text-slate-400">
+                            Total: {(engagementStats.flashback_points || 0).toLocaleString()} FP
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* FP Breakdown */}
+                    {displayFp !== null && (
+                      <div className="bg-slate-800/50 rounded-lg p-3 mb-3">
+                        <div className="text-xs font-semibold text-slate-400 mb-2">Breakdown</div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Base ({isSolo ? "Solo" : `${playerCount}P`})</span>
+                            <span className="text-slate-200">+{baseFp}</span>
+                          </div>
+                          {isWinner && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Win Bonus</span>
+                              <span className="text-emerald-400">+{winBonus}</span>
+                            </div>
+                          )}
+                          {!isSolo && partyMult > 1 && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Party Size</span>
+                              <span className="text-blue-400">×{partyMult}</span>
+                            </div>
+                          )}
+                          {streakMult > 1 && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Streak Bonus</span>
+                              <span className="text-orange-400">×{streakMult}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tier Progress Bar */}
+                    {engagementStats && engagementStats.tier !== "goat" && (
+                      <div>
+                        <div className="flex justify-between text-xs text-slate-400 mb-1">
+                          <span className="capitalize">{engagementStats.tier_name}</span>
+                          <span className="capitalize">{(engagementStats.next_tier || "").replace("_", " ")}</span>
+                        </div>
+                        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                            style={{ width: `${Math.min(engagementStats.tier_progress_percent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1 text-center">
+                          {(engagementStats.fp_to_next_tier || 0).toLocaleString()} FP to next tier
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {globalBestLineup && (
                 <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
@@ -3250,6 +4923,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       inviteAutoJoinRef.current = false;
                       setRematchRequested(false);
                       setRematchStatus({ ready: 0, total: 0 });
+                      setLastGameFpEarned(null);
                       flashNotice("");
 
                       setGameSettings((p) => ({ ...p, joinMode: "code" }));
@@ -3298,6 +4972,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       inviteAutoJoinRef.current = false;
                       setRematchRequested(false);
                       setRematchStatus({ ready: 0, total: 0 });
+                      setLastGameFpEarned(null);
                       flashNotice("");
                     }}
                     className="bg-slate-700 hover:bg-slate-600 px-6 py-3 rounded-lg font-bold transition"
