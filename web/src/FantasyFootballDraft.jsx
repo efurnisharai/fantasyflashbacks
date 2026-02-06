@@ -3013,7 +3013,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         className="bg-blue-600 hover:bg-blue-500 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1"
                       >
                         <Users size={14} />
-                        Friends
+                        Friends{friendsList.length > 0 && ` (${friendsList.length})`}
                         {friendRequests.length > 0 && (
                           <span className="bg-red-500 text-white text-[10px] px-1 rounded-full">{friendRequests.length}</span>
                         )}
