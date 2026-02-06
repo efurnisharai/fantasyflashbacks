@@ -4294,6 +4294,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         <div className="text-sm font-medium truncate">{p.name}</div>
                         <div className="flex items-center gap-2">
                           <TeamColorBadge team={p.team} />
+                          {p.matchup && <span className="text-xs text-slate-400">{p.matchup.is_home ? "vs" : "@"} <TeamColorBadge team={p.matchup.opponent} /></span>}
                           {p.number > 0 && <span className="text-xs text-slate-400">#{p.number}</span>}
                         </div>
                       </div>
