@@ -3126,19 +3126,19 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         </div>
                       ) : (
                         friendsList.map((friend) => (
-                          <div key={friend.friend_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
+                          <div key={friend.friend_user_id || friend.friendship_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
                             <div className="relative">
                               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">
-                                {(friend.display_name || "?")[0].toUpperCase()}
+                                {(friend.friend_display_name || friend.display_name || "?")[0].toUpperCase()}
                               </div>
                               {friend.is_online && (
                                 <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-700" />
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-semibold truncate">{friend.display_name}</div>
+                              <div className="font-semibold truncate">{friend.friend_display_name || friend.display_name}</div>
                               <div className="text-xs text-slate-400 flex items-center gap-2">
-                                <span className="capitalize">{(friend.tier || "rookie").replace("_", " ")}</span>
+                                <span className="capitalize">{(friend.friend_tier || friend.tier || "rookie").replace("_", " ")}</span>
                                 {friend.games_together > 0 && (
                                   <span>• {friend.games_together} games together</span>
                                 )}
