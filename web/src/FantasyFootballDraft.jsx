@@ -248,6 +248,7 @@ export default function FantasyFootballDraft() {
   const [friendSearchId, setFriendSearchId] = useState("");
   const [friendSearchResult, setFriendSearchResult] = useState(null);
   const [friendSearchError, setFriendSearchError] = useState("");
+  const [btnConfirm, setBtnConfirm] = useState(null); // inline button confirmation key
 
   // Daily challenge state
   const [dailyChallenge, setDailyChallenge] = useState(null);
@@ -511,9 +512,12 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         .from("friendships")
         .insert({ user_id: userId, friend_id: friendUserId, initiated_by: userId, status: "pending" });
       if (error) throw error;
-      flashNotice("Friend request sent!");
-      setFriendSearchResult(null);
-      setFriendSearchId("");
+      setBtnConfirm("friend-sent");
+      setTimeout(() => setBtnConfirm(null), 2000);
+      setTimeout(() => {
+        setFriendSearchResult(null);
+        setFriendSearchId("");
+      }, 1500);
       fetchFriends(userId);
     } catch (e) {
       console.warn("Failed to send friend request:", e);
@@ -3294,9 +3298,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           </div>
                           <button
                             onClick={() => sendFriendRequest(friendSearchResult.user_id)}
-                            className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-sm font-medium"
+                            className={`w-full mt-3 py-2 rounded-lg text-sm font-medium transition-colors ${btnConfirm === "friend-sent" ? "bg-green-600" : "bg-emerald-600 hover:bg-emerald-500"}`}
                           >
-                            Send Friend Request
+                            {btnConfirm === "friend-sent" ? "Request Sent!" : "Send Friend Request"}
                           </button>
                         </div>
                       )}
@@ -3312,12 +3316,15 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                             const id = userProfile?.flashback_id || "";
                             if (id) {
                               const ok = await copyToClipboard(id);
-                              if (ok) flashNotice("Flashback ID copied!");
+                              if (ok) {
+                                setBtnConfirm("flashback-id");
+                                setTimeout(() => setBtnConfirm(null), 2000);
+                              }
                             }
                           }}
-                          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+                          className={`mt-2 text-xs transition-colors ${btnConfirm === "flashback-id" ? "text-green-400" : "text-blue-400 hover:text-blue-300"}`}
                         >
-                          Tap to copy
+                          {btnConfirm === "flashback-id" ? "Copied!" : "Tap to copy"}
                         </button>
                       </div>
                     </div>
@@ -3359,12 +3366,14 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                               <button
                                 onClick={async () => {
                                   const ok = await copyToClipboard(code);
-                                  if (ok) flashNotice("Referral code copied!");
+                                  if (ok) {
+                                    setBtnConfirm("referral-code");
+                                    setTimeout(() => setBtnConfirm(null), 2000);
+                                  }
                                 }}
-                                className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                                className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${btnConfirm === "referral-code" ? "bg-green-600" : "bg-purple-600 hover:bg-purple-500"}`}
                               >
-                                <Copy size={14} />
-                                Copy Code
+                                {btnConfirm === "referral-code" ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy Code</>}
                               </button>
                               <button
                                 onClick={async () => {
@@ -3373,13 +3382,15 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                                     navigator.share({ text });
                                   } else {
                                     const ok = await copyToClipboard(text);
-                                    if (ok) flashNotice("Referral link copied!");
+                                    if (ok) {
+                                      setBtnConfirm("referral-share");
+                                      setTimeout(() => setBtnConfirm(null), 2000);
+                                    }
                                   }
                                 }}
-                                className="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                                className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${btnConfirm === "referral-share" ? "bg-green-600" : "bg-slate-600 hover:bg-slate-500"}`}
                               >
-                                <Share2 size={14} />
-                                Share
+                                {btnConfirm === "referral-share" ? <><Check size={14} /> Copied!</> : <><Share2 size={14} /> Share</>}
                               </button>
                             </div>
                           )}
