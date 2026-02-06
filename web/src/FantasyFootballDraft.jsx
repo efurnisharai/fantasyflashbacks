@@ -85,6 +85,12 @@ const normalizePos = (pos) => {
   return p === "PK" ? "K" : p;
 };
 
+const PROFILE_EMOJIS = [
+  "\u{1F3C8}","\u26A1","\u{1F525}","\u{1F3C6}","\u{1F985}","\u{1F43B}","\u{1F981}","\u{1F42F}","\u{1F42C}","\u{1F40E}",
+  "\u{1F9AC}","\u{1F43A}","\u{1F417}","\u{1F99C}","\u{1F427}","\u{1F988}","\u{1F40A}","\u{1F9A9}","\u{1F41D}","\u{1F409}",
+  "\u{1F451}","\u{1F48E}","\u2B50","\u{1F3AF}","\u{1F4AA}","\u{1F3AE}","\u{1F680}","\u{1F480}","\u{1F916}","\u{1F47D}",
+];
+
 const genRoomCode = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 const clampWeek = (w) => Math.max(1, Math.min(17, Number(w || 1)));
 const safeMsg = (e) =>
@@ -237,6 +243,7 @@ export default function FantasyFootballDraft() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   // Engagement system state
   const [engagementStats, setEngagementStats] = useState(null);
@@ -435,7 +442,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         const senderIds = incomingData.map(r => r.user_id);
         const { data: senderProfiles } = await supabase
           .from("user_profiles")
-          .select("id, display_name, flashback_id")
+          .select("id, display_name, flashback_id, avatar_url")
           .in("id", senderIds);
         const senderMap = {};
         (senderProfiles || []).forEach(p => { senderMap[p.id] = p; });
@@ -444,6 +451,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           sender_user_id: r.user_id,
           display_name: senderMap[r.user_id]?.display_name || "Unknown",
           flashback_id: senderMap[r.user_id]?.flashback_id || "",
+          avatar_url: senderMap[r.user_id]?.avatar_url || null,
         })));
       } else {
         setFriendRequests([]);
@@ -459,7 +467,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         const friendIds = sentData.map(s => s.friend_id);
         const { data: profiles } = await supabase
           .from("user_profiles")
-          .select("id, display_name, flashback_id")
+          .select("id, display_name, flashback_id, avatar_url")
           .in("id", friendIds);
         const profileMap = {};
         (profiles || []).forEach(p => { profileMap[p.id] = p; });
@@ -467,6 +475,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           ...s,
           display_name: profileMap[s.friend_id]?.display_name || "Unknown",
           flashback_id: profileMap[s.friend_id]?.flashback_id || "",
+          avatar_url: profileMap[s.friend_id]?.avatar_url || null,
         })));
       } else {
         setSentRequests([]);
@@ -838,6 +847,22 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       setPlayerName(editNameValue.trim());
       setEditingName(false);
       flashNotice("Name updated!");
+    } catch (e) {
+      flashNotice(`Update failed: ${safeMsg(e)}`);
+    }
+  };
+
+  const updateAvatar = async (emoji) => {
+    if (!userId) return;
+    try {
+      const { error } = await supabase
+        .from("user_profiles")
+        .update({ avatar_url: emoji || null, updated_at: new Date().toISOString() })
+        .eq("id", userId);
+      if (error) throw error;
+      setUserProfile(prev => prev ? { ...prev, avatar_url: emoji || null } : prev);
+      setShowEmojiPicker(false);
+      flashNotice(emoji ? "Icon updated!" : "Icon cleared!");
     } catch (e) {
       flashNotice(`Update failed: ${safeMsg(e)}`);
     }
@@ -2694,7 +2719,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   {userProfile ? (
                     <>
                       <div className="w-7 h-7 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-bold">
-                        {(userProfile.display_name || "P")[0].toUpperCase()}
+                        {userProfile.avatar_url || (userProfile.display_name || "P")[0].toUpperCase()}
                       </div>
                       <div className="hidden sm:block text-left">
                         <div className="text-xs font-semibold truncate max-w-[80px]">{userProfile.display_name || "Player"}</div>
@@ -2746,9 +2771,16 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                   /* Signed-in profile view */
                   <div>
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-xl font-bold">
-                        {(userProfile.display_name || "P")[0].toUpperCase()}
-                      </div>
+                      <button
+                        onClick={() => setShowEmojiPicker(v => !v)}
+                        className="relative w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-xl font-bold group hover:ring-2 hover:ring-emerald-400 transition"
+                        title="Change profile icon"
+                      >
+                        {userProfile.avatar_url || (userProfile.display_name || "P")[0].toUpperCase()}
+                        <span className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition text-xs">
+                          ✏️
+                        </span>
+                      </button>
                       <div className="flex-1">
                         {editingName ? (
                           <div className="flex gap-2">
@@ -2795,6 +2827,34 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         </div>
                       </div>
                     </div>
+
+                    {/* Emoji Picker */}
+                    {showEmojiPicker && (
+                      <div className="mb-4 bg-slate-700/50 border border-slate-600 rounded-lg p-3">
+                        <div className="text-xs font-semibold text-slate-400 mb-2">Choose Profile Icon</div>
+                        <div className="grid grid-cols-10 gap-1">
+                          {PROFILE_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => updateAvatar(emoji)}
+                              className={`w-8 h-8 flex items-center justify-center rounded hover:bg-slate-600 transition text-lg ${
+                                userProfile?.avatar_url === emoji ? "bg-emerald-600/40 ring-1 ring-emerald-400" : ""
+                              }`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                        {userProfile?.avatar_url && (
+                          <button
+                            onClick={() => updateAvatar(null)}
+                            className="mt-2 text-xs text-slate-400 hover:text-white transition"
+                          >
+                            Clear icon (use initial)
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* Engagement Stats Section */}
                     {engagementStats && (
@@ -3167,7 +3227,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           <div key={friend.friend_user_id || friend.friendship_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
                             <div className="relative">
                               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">
-                                {(friend.friend_display_name || friend.display_name || "?")[0].toUpperCase()}
+                                {friend.friend_avatar_url || friend.avatar_url || (friend.friend_display_name || friend.display_name || "?")[0].toUpperCase()}
                               </div>
                               {friend.is_online && (
                                 <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-700" />
@@ -3239,7 +3299,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                                   entry.is_current_user ? "bg-blue-600" : "bg-slate-600"
                                 }`}>
-                                  {(entry.display_name || "?")[0].toUpperCase()}
+                                  {entry.avatar_url || (entry.display_name || "?")[0].toUpperCase()}
                                 </div>
                                 <div className="min-w-0">
                                   <div className={`text-sm font-medium truncate ${entry.is_current_user ? "text-blue-200" : ""}`}>
@@ -3295,7 +3355,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           {friendRequests.map((request) => (
                             <div key={request.sender_user_id || request.id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
                               <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold">
-                                {(request.display_name || "?")[0].toUpperCase()}
+                                {request.avatar_url || (request.display_name || "?")[0].toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-semibold truncate">{request.display_name}</div>
@@ -3334,7 +3394,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           {sentRequests.map((request) => (
                             <div key={request.user_id || request.friend_id} className="flex items-center gap-3 bg-slate-700/30 rounded-lg p-3">
                               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">
-                                {(request.display_name || "?")[0].toUpperCase()}
+                                {request.avatar_url || (request.display_name || "?")[0].toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-semibold truncate">{request.display_name}</div>
@@ -3361,7 +3421,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           {recentPlayers.filter(p => !p.is_friend).map((player) => (
                             <div key={player.user_id} className="flex items-center gap-3 bg-slate-700/30 rounded-lg p-3">
                               <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center font-bold">
-                                {(player.display_name || "?")[0].toUpperCase()}
+                                {player.avatar_url || (player.display_name || "?")[0].toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-semibold truncate">{player.display_name}</div>
@@ -3411,7 +3471,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         <div className="bg-slate-700/50 rounded-lg p-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-xl font-bold">
-                              {(friendSearchResult.display_name || "?")[0].toUpperCase()}
+                              {friendSearchResult.avatar_url || (friendSearchResult.display_name || "?")[0].toUpperCase()}
                             </div>
                             <div className="flex-1">
                               <div className="font-semibold">{friendSearchResult.display_name}</div>
