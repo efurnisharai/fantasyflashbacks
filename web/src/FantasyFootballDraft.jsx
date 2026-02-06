@@ -491,14 +491,26 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
   // Send friend request
-  const sendFriendRequest = async (flashbackId) => {
+  const sendFriendRequest = async (friendUserId) => {
     try {
-      const data = await rpc("ff_send_friend_request", { p_user_id: userId, p_friend_flashback_id: flashbackId });
-      const result = Array.isArray(data) ? data[0] : data;
-      if (result && result.success === false) {
-        flashNotice(result.message || "Failed to send friend request");
+      if (friendUserId === userId) {
+        flashNotice("You cannot add yourself as a friend");
         return;
       }
+      // Check for existing friendship
+      const { data: existing } = await supabase
+        .from("friendships")
+        .select("id")
+        .or(`and(user_id.eq.${userId},friend_id.eq.${friendUserId}),and(user_id.eq.${friendUserId},friend_id.eq.${userId})`)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        flashNotice("Friend request already exists or you are already friends");
+        return;
+      }
+      const { error } = await supabase
+        .from("friendships")
+        .insert({ user_id: userId, friend_id: friendUserId, initiated_by: userId, status: "pending" });
+      if (error) throw error;
       flashNotice("Friend request sent!");
       setFriendSearchResult(null);
       setFriendSearchId("");
@@ -3281,7 +3293,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                             </div>
                           </div>
                           <button
-                            onClick={() => sendFriendRequest(friendSearchResult.flashback_id)}
+                            onClick={() => sendFriendRequest(friendSearchResult.user_id)}
                             className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-sm font-medium"
                           >
                             Send Friend Request
