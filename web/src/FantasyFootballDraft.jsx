@@ -421,10 +421,28 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       if (data && Array.isArray(data)) {
         setFriendsList(data);
       }
-      // Fetch incoming friend requests
-      const reqData = await rpc("ff_get_friend_requests", { p_user_id: uid });
-      if (reqData && Array.isArray(reqData)) {
-        setFriendRequests(reqData);
+      // Fetch incoming friend requests directly from table
+      const { data: incomingData } = await supabase
+        .from("friendships")
+        .select("id, user_id, friend_id, created_at")
+        .eq("friend_id", uid)
+        .eq("status", "pending");
+      if (incomingData && incomingData.length > 0) {
+        const senderIds = incomingData.map(r => r.user_id);
+        const { data: senderProfiles } = await supabase
+          .from("user_profiles")
+          .select("id, display_name, flashback_id")
+          .in("id", senderIds);
+        const senderMap = {};
+        (senderProfiles || []).forEach(p => { senderMap[p.id] = p; });
+        setFriendRequests(incomingData.map(r => ({
+          ...r,
+          sender_user_id: r.user_id,
+          display_name: senderMap[r.user_id]?.display_name || "Unknown",
+          flashback_id: senderMap[r.user_id]?.flashback_id || "",
+        })));
+      } else {
+        setFriendRequests([]);
       }
       // Fetch outgoing sent requests
       const { data: sentData } = await supabase
@@ -551,15 +569,16 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
   // Accept friend request
-  const acceptFriendRequest = async (friendshipId) => {
+  const acceptFriendRequest = async (senderUserId) => {
     try {
       const { error } = await supabase
         .from("friendships")
         .update({ status: "accepted", updated_at: new Date().toISOString() })
-        .eq("id", friendshipId)
-        .eq("friend_id", userId);
+        .eq("user_id", senderUserId)
+        .eq("friend_id", userId)
+        .eq("status", "pending");
       if (error) throw error;
-      setBtnConfirm(`accepted-${friendshipId}`);
+      setBtnConfirm(`accepted-${senderUserId}`);
       fetchFriends(userId);
     } catch (e) {
       console.warn("Failed to accept friend request:", e);
@@ -3255,23 +3274,23 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                         <>
                           <div className="text-xs font-semibold text-slate-400 mb-2">Incoming Requests</div>
                           {friendRequests.map((request) => (
-                            <div key={request.from_user_id || request.friendship_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
+                            <div key={request.sender_user_id || request.id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
                               <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold">
-                                {(request.from_display_name || request.display_name || "?")[0].toUpperCase()}
+                                {(request.display_name || "?")[0].toUpperCase()}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="font-semibold truncate">{request.from_display_name || request.display_name}</div>
+                                <div className="font-semibold truncate">{request.display_name}</div>
                                 <div className="text-xs text-slate-400">
-                                  {request.from_flashback_id || request.flashback_id}
+                                  {request.flashback_id}
                                 </div>
                               </div>
                               <div className="flex gap-2">
-                                {btnConfirm === `accepted-${request.friendship_id}` ? (
+                                {btnConfirm === `accepted-${request.sender_user_id}` ? (
                                   <span className="text-xs text-green-400 font-medium px-3 py-1.5 flex items-center gap-1"><Check size={12} /> Accepted</span>
                                 ) : (
                                   <>
                                     <button
-                                      onClick={() => acceptFriendRequest(request.friendship_id)}
+                                      onClick={() => acceptFriendRequest(request.sender_user_id)}
                                       className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-xs font-medium"
                                     >
                                       Accept
