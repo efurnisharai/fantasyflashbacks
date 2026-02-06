@@ -3308,10 +3308,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           {userProfile?.flashback_id || "Sign in to get ID"}
                         </div>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const id = userProfile?.flashback_id || "";
                             if (id) {
-                              navigator.clipboard?.writeText(id);
+                              const ok = await copyToClipboard(id);
+                              if (ok) flashNotice("Flashback ID copied!");
                             }
                           }}
                           className="mt-2 text-xs text-blue-400 hover:text-blue-300"
@@ -3356,8 +3357,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                           {code && (
                             <div className="flex gap-2 justify-center">
                               <button
-                                onClick={() => {
-                                  navigator.clipboard?.writeText(code);
+                                onClick={async () => {
+                                  const ok = await copyToClipboard(code);
+                                  if (ok) flashNotice("Referral code copied!");
                                 }}
                                 className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
                               >
@@ -3365,12 +3367,13 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                                 Copy Code
                               </button>
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   const text = `Join me on Fantasy Flashbacks! Use my referral code ${code} to get bonus rewards. https://fantasyflashbacks.com`;
                                   if (navigator.share) {
                                     navigator.share({ text });
                                   } else {
-                                    navigator.clipboard?.writeText(text);
+                                    const ok = await copyToClipboard(text);
+                                    if (ok) flashNotice("Referral link copied!");
                                   }
                                 }}
                                 className="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
