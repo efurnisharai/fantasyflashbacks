@@ -29,7 +29,29 @@ def main(year_start: int, year_end: int):
     pid_c    = pick_col(cols, ["player_id","gsis_id","player_gsis_id"])
     name_c   = pick_col(cols, ["player_name","name","player_display_name"])
     pos_c    = pick_col(cols, ["position","pos"])
-    team_c   = pick_col(cols, ["team","recent_team","posteam"])
+    recent_team_c = pick_col(cols, ["recent_team","team","posteam"])
+
+    # Load roster data to get correct historical team per (player, season)
+    rosters = nfl.load_rosters(years).to_pandas()
+    roster_cols = rosters.columns.tolist()
+    roster_pid_c = pick_col(roster_cols, ["player_id","gsis_id","player_gsis_id"])
+    roster_team_c = pick_col(roster_cols, ["team","recent_team"])
+    roster_season_c = pick_col(roster_cols, ["season","year"])
+    if roster_pid_c and roster_team_c and roster_season_c:
+        roster_team_map = rosters[[roster_pid_c, roster_season_c, roster_team_c]].drop_duplicates(
+            subset=[roster_pid_c, roster_season_c], keep="last"
+        )
+        roster_team_map = roster_team_map.rename(columns={
+            roster_pid_c: pid_c, roster_season_c: season_c, roster_team_c: "roster_team"
+        })
+        df = df.merge(roster_team_map, on=[pid_c, season_c], how="left")
+        # Prefer roster team, fall back to recent_team
+        df["_hist_team"] = df["roster_team"].fillna(df.get(recent_team_c, pd.Series(dtype=str)))
+        team_c = "_hist_team"
+        print("Merged roster data for historical teams")
+    else:
+        team_c = recent_team_c
+        print("Warning: could not load roster team data, falling back to recent_team")
     jersey_c = pick_col(cols, ["jersey_number"])
 
     pass_yds = pick_col(cols, ["passing_yards","pass_yards"])

@@ -55,6 +55,10 @@ const NFL_TEAMS = {
   TB: { primary: "#D50A0A", secondary: "#FF7900" },
   TEN: { primary: "#0C2340", secondary: "#4B92DB" },
   WAS: { primary: "#5A1414", secondary: "#FFB612" },
+  // Historical / relocated teams
+  STL: { primary: "#002244", secondary: "#C9B074" },  // St. Louis Rams
+  SD:  { primary: "#002A5E", secondary: "#FFC20E" },  // San Diego Chargers
+  OAK: { primary: "#000000", secondary: "#A5ACAF" },  // Oakland Raiders
 };
 
 const NFL_TEAM_ABBRS = Object.keys(NFL_TEAMS).sort();
