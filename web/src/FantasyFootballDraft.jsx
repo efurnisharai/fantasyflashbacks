@@ -923,13 +923,28 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       .eq("week", safeWeek);
     if (rErr) throw rErr;
 
-    const roster = (rosterRows ?? []).map((r) => ({
-      id: r.player_id,
-      name: r.player_name,
-      position: normalizePos(r.position),
-      team: normalizeTeam(r.team),
-      number: r.jersey_number ?? 0,
-    }));
+    // Fetch matchups so draft search can show opponent
+    const { data: matchupRows, error: mErr } = await supabase
+      .from("team_week_matchups")
+      .select("team, opponent, is_home")
+      .eq("season", season)
+      .eq("week", safeWeek);
+    const matchupMap = new Map();
+    if (!mErr && matchupRows) {
+      matchupRows.forEach((m) => matchupMap.set(normalizeTeam(m.team), { opponent: normalizeTeam(m.opponent), is_home: m.is_home }));
+    }
+
+    const roster = (rosterRows ?? []).map((r) => {
+      const team = normalizeTeam(r.team);
+      return {
+        id: r.player_id,
+        name: r.player_name,
+        position: normalizePos(r.position),
+        team,
+        number: r.jersey_number ?? 0,
+        matchup: matchupMap.get(team) || null,
+      };
+    });
 
     let dstRoster = [];
     const { data: teamRows, error: dErr } = await supabase
@@ -940,7 +955,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
     if (!dErr && teamRows && teamRows.length > 0) {
       dstRoster = teamRows.map((t) => {
         const team = normalizeTeam(t.team);
-        return { id: `DST_${team}`, name: `${team} Defense`, position: "DST", team, number: 0 };
+        return { id: `DST_${team}`, name: `${team} Defense`, position: "DST", team, number: 0, matchup: matchupMap.get(team) || null };
       });
     }
 
