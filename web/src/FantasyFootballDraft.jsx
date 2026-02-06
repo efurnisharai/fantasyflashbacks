@@ -3602,9 +3602,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Daily Challenge</span>
-                          {!isComplete && challengeTimeLeft && (
+                          {challengeTimeLeft && (
                             <span className="text-xs text-slate-400">
-                              {challengeTimeLeft}
+                              {isComplete ? `Resets in ${challengeTimeLeft}` : challengeTimeLeft}
                             </span>
                           )}
                         </div>
