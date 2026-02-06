@@ -242,6 +242,7 @@ export default function FantasyFootballDraft() {
   // Friends system state
   const [friendsList, setFriendsList] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
+  const [sentRequests, setSentRequests] = useState([]);
   const [recentPlayers, setRecentPlayers] = useState([]);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendsTab, setFriendsTab] = useState("friends"); // "friends", "requests", "add"
@@ -252,6 +253,7 @@ export default function FantasyFootballDraft() {
 
   // Daily challenge state
   const [dailyChallenge, setDailyChallenge] = useState(null);
+  const [challengeTimeLeft, setChallengeTimeLeft] = useState("");
 
   // Referral system state
   const [referralStats, setReferralStats] = useState(null);
@@ -414,10 +416,38 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   // Fetch friends list
   const fetchFriends = async (uid) => {
     try {
+      // Fetch accepted friends
       const data = await rpc("ff_get_friends", { p_user_id: uid });
       if (data && Array.isArray(data)) {
-        setFriendsList(data.filter(f => f.status === "accepted"));
-        setFriendRequests(data.filter(f => f.status === "pending" && f.friend_id === uid));
+        setFriendsList(data);
+      }
+      // Fetch incoming friend requests
+      const reqData = await rpc("ff_get_friend_requests", { p_user_id: uid });
+      if (reqData && Array.isArray(reqData)) {
+        setFriendRequests(reqData);
+      }
+      // Fetch outgoing sent requests
+      const { data: sentData } = await supabase
+        .from("friendships")
+        .select("id, friend_id, created_at")
+        .eq("user_id", uid)
+        .eq("status", "pending");
+      if (sentData && sentData.length > 0) {
+        // Look up display names for sent requests
+        const friendIds = sentData.map(s => s.friend_id);
+        const { data: profiles } = await supabase
+          .from("user_profiles")
+          .select("id, display_name, flashback_id")
+          .in("id", friendIds);
+        const profileMap = {};
+        (profiles || []).forEach(p => { profileMap[p.id] = p; });
+        setSentRequests(sentData.map(s => ({
+          ...s,
+          display_name: profileMap[s.friend_id]?.display_name || "Unknown",
+          flashback_id: profileMap[s.friend_id]?.flashback_id || "",
+        })));
+      } else {
+        setSentRequests([]);
       }
     } catch (e) {
       console.warn("Failed to fetch friends:", e);
@@ -513,11 +543,6 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
         .insert({ user_id: userId, friend_id: friendUserId, initiated_by: userId, status: "pending" });
       if (error) throw error;
       setBtnConfirm("friend-sent");
-      setTimeout(() => setBtnConfirm(null), 2000);
-      setTimeout(() => {
-        setFriendSearchResult(null);
-        setFriendSearchId("");
-      }, 1500);
       fetchFriends(userId);
     } catch (e) {
       console.warn("Failed to send friend request:", e);
@@ -705,6 +730,28 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [userId, dailyChallenge]);
+
+  // Live countdown timer for daily challenge
+  useEffect(() => {
+    if (!dailyChallenge?.expires_at) {
+      setChallengeTimeLeft("");
+      return;
+    }
+    const tick = () => {
+      const diff = new Date(dailyChallenge.expires_at).getTime() - Date.now();
+      if (diff <= 0) {
+        setChallengeTimeLeft("Expired");
+        return;
+      }
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1000);
+      setChallengeTimeLeft(`${h}h ${m}m ${s}s`);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [dailyChallenge?.expires_at]);
 
   // OAuth sign-in (Google)
   const signInWithGoogle = async () => {
@@ -3010,7 +3057,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[80vh] overflow-hidden flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-bold">Friends</h3>
-                  <button onClick={() => setShowFriendsModal(false)} className="text-slate-400 hover:text-white">
+                  <button onClick={() => { setShowFriendsModal(false); setBtnConfirm(null); setFriendSearchResult(null); setFriendSearchId(""); }} className="text-slate-400 hover:text-white">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -3197,37 +3244,64 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
 
                   {friendsTab === "requests" && (
                     <div className="space-y-2">
-                      {friendRequests.length === 0 ? (
+                      {/* Incoming requests */}
+                      {friendRequests.length > 0 && (
+                        <>
+                          <div className="text-xs font-semibold text-slate-400 mb-2">Incoming Requests</div>
+                          {friendRequests.map((request) => (
+                            <div key={request.from_user_id || request.friendship_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
+                              <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold">
+                                {(request.from_display_name || request.display_name || "?")[0].toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold truncate">{request.from_display_name || request.display_name}</div>
+                                <div className="text-xs text-slate-400">
+                                  {request.from_flashback_id || request.flashback_id}
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => acceptFriendRequest(request.from_user_id || request.user_id)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-xs font-medium"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  className="bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs font-medium"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {/* Sent requests (pending) */}
+                      {sentRequests.length > 0 && (
+                        <>
+                          <div className="text-xs font-semibold text-slate-400 mt-4 mb-2">Sent Requests</div>
+                          {sentRequests.map((request) => (
+                            <div key={request.user_id || request.friend_id} className="flex items-center gap-3 bg-slate-700/30 rounded-lg p-3">
+                              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">
+                                {(request.display_name || "?")[0].toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold truncate">{request.display_name}</div>
+                                <div className="text-xs text-slate-400">
+                                  {request.flashback_id}
+                                </div>
+                              </div>
+                              <span className="text-xs text-amber-400 font-medium px-3 py-1.5">Pending</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {friendRequests.length === 0 && sentRequests.length === 0 && (
                         <div className="text-center py-8 text-slate-400">
                           <p>No pending requests</p>
                         </div>
-                      ) : (
-                        friendRequests.map((request) => (
-                          <div key={request.user_id} className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
-                            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold">
-                              {(request.display_name || "?")[0].toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold truncate">{request.display_name}</div>
-                              <div className="text-xs text-slate-400">
-                                {request.flashback_id}
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => acceptFriendRequest(request.user_id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-xs font-medium"
-                              >
-                                Accept
-                              </button>
-                              <button
-                                className="bg-slate-600 hover:bg-slate-500 px-3 py-1.5 rounded text-xs font-medium"
-                              >
-                                Decline
-                              </button>
-                            </div>
-                          </div>
-                        ))
                       )}
 
                       {/* Recent Players Section */}
@@ -3297,10 +3371,11 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                             </div>
                           </div>
                           <button
-                            onClick={() => sendFriendRequest(friendSearchResult.user_id)}
-                            className={`w-full mt-3 py-2 rounded-lg text-sm font-medium transition-colors ${btnConfirm === "friend-sent" ? "bg-green-600" : "bg-emerald-600 hover:bg-emerald-500"}`}
+                            onClick={() => { if (btnConfirm !== "friend-sent") sendFriendRequest(friendSearchResult.user_id); }}
+                            disabled={btnConfirm === "friend-sent"}
+                            className={`w-full mt-3 py-2 rounded-lg text-sm font-medium transition-all ${btnConfirm === "friend-sent" ? "bg-green-600 cursor-default" : "bg-emerald-600 hover:bg-emerald-500"}`}
                           >
-                            {btnConfirm === "friend-sent" ? "Request Sent!" : "Send Friend Request"}
+                            {btnConfirm === "friend-sent" ? <span className="flex items-center justify-center gap-2"><Check size={16} /> Request Sent!</span> : "Send Friend Request"}
                           </button>
                         </div>
                       )}
@@ -3510,10 +3585,6 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
               const challenge = dailyChallenge;
               const progress = Math.min((challenge.current_value / challenge.target_value) * 100, 100);
               const isComplete = challenge.current_value >= challenge.target_value;
-              const expiresAt = new Date(challenge.expires_at);
-              const now = new Date();
-              const hoursLeft = Math.max(0, Math.floor((expiresAt - now) / (1000 * 60 * 60)));
-              const minsLeft = Math.max(0, Math.floor(((expiresAt - now) % (1000 * 60 * 60)) / (1000 * 60)));
 
               return (
                 <div className={`mb-6 rounded-xl border p-4 ${
@@ -3531,9 +3602,9 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Daily Challenge</span>
-                          {!isComplete && hoursLeft < 24 && (
+                          {!isComplete && challengeTimeLeft && (
                             <span className="text-xs text-slate-400">
-                              {hoursLeft}h {minsLeft}m left
+                              {challengeTimeLeft}
                             </span>
                           )}
                         </div>
