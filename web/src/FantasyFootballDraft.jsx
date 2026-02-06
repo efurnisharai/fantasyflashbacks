@@ -76,7 +76,7 @@ const POSITION_COLORS = {
 const normalizeTeam = (team) => {
   if (!team) return null;
   const t = String(team).toUpperCase().trim();
-  const map = { LA: "LAR", JAC: "JAX", WSH: "WAS" };
+  const map = { LA: "LAR", JAC: "JAX", WSH: "WAS", BLT: "BAL", ARZ: "ARI", CLV: "CLE", HST: "HOU", SL: "STL" };
   return map[t] || t;
 };
 
