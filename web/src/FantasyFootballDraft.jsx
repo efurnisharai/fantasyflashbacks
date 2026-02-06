@@ -491,14 +491,21 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
   };
 
   // Send friend request
-  const sendFriendRequest = async (friendUserId) => {
+  const sendFriendRequest = async (flashbackId) => {
     try {
-      await rpc("ff_send_friend_request", { p_user_id: userId, p_friend_id: friendUserId });
+      const data = await rpc("ff_send_friend_request", { p_user_id: userId, p_friend_flashback_id: flashbackId });
+      const result = Array.isArray(data) ? data[0] : data;
+      if (result && result.success === false) {
+        flashNotice(result.message || "Failed to send friend request");
+        return;
+      }
+      flashNotice("Friend request sent!");
       setFriendSearchResult(null);
       setFriendSearchId("");
       fetchFriends(userId);
     } catch (e) {
       console.warn("Failed to send friend request:", e);
+      flashNotice("Failed to send friend request. Please try again.");
     }
   };
 
@@ -649,6 +656,39 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Auto-refresh daily challenge when it expires or when user returns to app
+  useEffect(() => {
+    if (!userId) return;
+
+    // Check every 60s if current challenge has expired
+    const interval = setInterval(() => {
+      if (dailyChallenge?.expires_at) {
+        const expiresAt = new Date(dailyChallenge.expires_at).getTime();
+        if (Date.now() >= expiresAt) {
+          fetchDailyChallenge(userId);
+        }
+      }
+    }, 60_000);
+
+    // Also refresh when user returns to the app (tab/app becomes visible)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && userId) {
+        const expiresAt = dailyChallenge?.expires_at
+          ? new Date(dailyChallenge.expires_at).getTime()
+          : 0;
+        if (!dailyChallenge || Date.now() >= expiresAt) {
+          fetchDailyChallenge(userId);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [userId, dailyChallenge]);
 
   // OAuth sign-in (Google)
   const signInWithGoogle = async () => {
@@ -1321,6 +1361,7 @@ const snakeChecked = snakeDraftToSend; // use this for the checkbox "checked" pr
           season: pick.season,
           week: clampWeek(pick.week),
           turn_deadline_at: deadlineIso,
+          is_solo: true,
         })
         .select("*")
         .single();
@@ -3240,7 +3281,7 @@ console.log("DST matchup sanity:", sample.map(([t, m]) => ({ team: t, opp_score:
                             </div>
                           </div>
                           <button
-                            onClick={() => sendFriendRequest(friendSearchResult.user_id)}
+                            onClick={() => sendFriendRequest(friendSearchResult.flashback_id)}
                             className="w-full mt-3 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-sm font-medium"
                           >
                             Send Friend Request
