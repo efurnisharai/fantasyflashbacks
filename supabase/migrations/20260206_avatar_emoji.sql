@@ -3,7 +3,16 @@
 --
 -- Adds avatar_url to return types of friend/leaderboard/search
 -- functions so users can see each other's chosen emoji icons.
+--
+-- Must DROP then CREATE because CREATE OR REPLACE cannot
+-- change the return type of an existing function.
 -- =========================================================
+
+-- Drop existing functions (signature must match)
+DROP FUNCTION IF EXISTS public.ff_get_friends(UUID);
+DROP FUNCTION IF EXISTS public.ff_get_friends_leaderboard(UUID, INT);
+DROP FUNCTION IF EXISTS public.ff_search_user_by_flashback_id(TEXT, UUID);
+DROP FUNCTION IF EXISTS public.ff_get_recent_players(UUID, INT);
 
 -- =========================================================
 -- 1) ff_get_friends — add friend_avatar_url
